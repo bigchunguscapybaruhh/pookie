@@ -254,6 +254,67 @@ class SoundSystem {
       sparkleOsc.stop(startTime + 0.15);
     }
   }
+
+  /**
+   * Lockpick success — satisfying metallic "tink" click
+   */
+  playLockpickClick() {
+    if (this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+
+    // Main metallic triangle wave
+    const osc1 = this.ctx.createOscillator();
+    const g1   = this.ctx.createGain();
+    osc1.type = 'triangle';
+    osc1.frequency.setValueAtTime(1300, t);
+    osc1.frequency.exponentialRampToValueAtTime(950, t + 0.09);
+    g1.gain.setValueAtTime(0.13, t);
+    g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    osc1.connect(g1);
+    g1.connect(this.masterGain);
+    osc1.start(t);
+    osc1.stop(t + 0.18);
+
+    // High sparkle harmonic
+    const osc2 = this.ctx.createOscillator();
+    const g2   = this.ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(2600, t);
+    g2.gain.setValueAtTime(0.05, t);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
+    osc2.connect(g2);
+    g2.connect(this.masterGain);
+    osc2.start(t);
+    osc2.stop(t + 0.10);
+  }
+
+  /**
+   * Lockpick miss — short sharp downward buzz
+   */
+  playLockpickMiss() {
+    if (this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const t   = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g   = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.20);
+
+    g.gain.setValueAtTime(0.10, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.24);
+  }
 }
 
 const Sound = new SoundSystem();

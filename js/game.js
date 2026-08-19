@@ -72,7 +72,7 @@ class Game {
 
   handleCanvasClick(e) {
     Sound.ensureContext();
-    if (!this.chest || !this.player || Dialog.isOpen) return;
+    if (!this.chest || !this.player || Dialog.isOpen || Lockpick.isActive) return;
 
     const rect = this.canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
@@ -98,7 +98,7 @@ class Game {
 
     // 3. Handle Chest Interaction via Action Key (Space / Enter / Mobile button)
     if (Input.consumeAction() && this.chest && this.chest.isNear(this.player)) {
-      if (!Dialog.isOpen) {
+      if (!Dialog.isOpen && !Lockpick.isActive) {
         Dialog.openChestPrompt(this.chest);
       }
     }

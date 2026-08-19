@@ -172,12 +172,14 @@ class DialogController {
     const isValid = await verifyPassword(candidate);
 
     if (isValid) {
-      // Correct Password!
+      // Correct Password — launch lockpick minigame before revealing the reward
+      const chestRef = this.activeChest;
       this.close();
-      if (this.activeChest) {
-        this.activeChest.unlock();
-      }
-      setTimeout(() => this.showReward(), 500);
+      Lockpick.start(() => {
+        if (chestRef) chestRef.unlock();
+        setTimeout(() => this.showReward(), 500);
+      });
+
     } else {
       // Incorrect Password!
       Sound.playError();

@@ -911,3 +911,34 @@ html, body {
     display: none;
   }
 }
+
+/* ==========================================================================
+   Lockpick Minigame Overlay
+   z-index 115: above dialog (100) but below reward modal (120)
+   ========================================================================== */
+.lockpick-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 115;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(4px);
+  animation: fadeLockpickIn 0.25s ease forwards;
+}
+
+@keyframes fadeLockpickIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+#lockpickCanvas {
+  image-rendering: auto;
+  cursor: pointer;
+  touch-action: none;
+}
+
