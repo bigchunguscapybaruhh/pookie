@@ -1,5 +1,5 @@
 /**
- * Moroccan Gothic Heroine Player Entity
+ * Heroine Player Entity
  * Mystic Realms - 2000s JRPG Web App
  */
 
