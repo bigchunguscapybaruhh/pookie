@@ -34,9 +34,9 @@ class LockpickMinigame {
      *   Round 3 → ~160 ms  (genuinely difficult)
      */
     this.rounds = [
-      { speed: 5.0, greenArc: 12 * Math.PI / 180 },
-      { speed: 6.5, greenArc: 8 * Math.PI / 180 },
-      { speed: 8, greenArc: 4 * Math.PI / 180 },
+      { speed: 5.0, greenArc: 16 * Math.PI / 180 },
+      { speed: 6.5, greenArc: 12 * Math.PI / 180 },
+      { speed: 7.5, greenArc: 8 * Math.PI / 180 },
     ];
 
     // ---- Rendering ----
