@@ -1,9 +1,9 @@
 /**
  * =========================================================================
- * 🦇 GOTHIC EMO JRPG PIXEL ART ENGINE - MOWSKITO'S REALM
+ * 🦇 altIC alt JRPG PIXEL ART ENGINE - MOWSKITO'S REALM
  * =========================================================================
- * Generates dark gothic tiles, spooky graveyard tombstones, vampire manor,
- * gnarled trees, carved pumpkins, and the cool Moroccan Gothic heroine Mowskito.
+ * Generates dark altic tiles, spooky graveyard tombstones, vampire manor,
+ * gnarled trees, carved pumpkins, and the cool heroine Mowskito.
  */
 
 class SpriteManager {
@@ -17,7 +17,7 @@ class SpriteManager {
 
   async init() {
     this.generateTerrainTiles();
-    this.generateGothicBuildingsAndProps();
+    this.generatealticBuildingsAndProps();
     this.generateDisguisedChest();
     this.generateHeroSprites();
   }
@@ -32,7 +32,7 @@ class SpriteManager {
   }
 
   /**
-   * Generates Dark Gothic & Graveyard Terrain Tiles:
+   * Generates Dark altic & Graveyard Terrain Tiles:
    * - Twilight Mossy Grass with purple nightshade florets & blood roses
    * - Dark Cobblestone Paths
    * - Graveyard Soil & Crypt Stone Tiles
@@ -173,7 +173,7 @@ class SpriteManager {
   /**
    * Generates Vampire Manor, Spooky Crypt, Graveyard Tombstones, Gnarled Trees, Pumpkins, Gargoyles
    */
-  generateGothicBuildingsAndProps() {
+  generatealticBuildingsAndProps() {
     // 1. GNARLED SPOOKY TREE (Dark twisted branches with crimson/purple leaves: 96x112px)
     const { canvas: treeCanvas, ctx: tCtx } = this.createOffscreen(96, 112);
     tCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
@@ -216,7 +216,7 @@ class SpriteManager {
 
     this.propTextures['tree_spooky'] = treeCanvas;
 
-    // 2. WEEPING GOTHIC WILLOW TREE (Dark emerald/black foliage: 96x112px)
+    // 2. WEEPING altIC WILLOW TREE (Dark emerald/black foliage: 96x112px)
     const { canvas: willowCanvas, ctx: wCtx } = this.createOffscreen(96, 112);
     wCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     wCtx.beginPath();
@@ -239,7 +239,7 @@ class SpriteManager {
 
     this.propTextures['tree_willow'] = willowCanvas;
 
-    // 3. VAMPIRE MANOR (Gothic Castle Estate: 168x156px)
+    // 3. VAMPIRE MANOR (altic Castle Estate: 168x156px)
     const { canvas: manorCanvas, ctx: mCtx } = this.createOffscreen(172, 160);
     mCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     mCtx.fillRect(10, 144, 152, 14);
@@ -256,7 +256,7 @@ class SpriteManager {
       mCtx.fillRect(18, y, 136, 2);
     }
 
-    // Gothic Pointed Spires & Slate Roof
+    // altic Pointed Spires & Slate Roof
     mCtx.fillStyle = '#110c17'; // Roof outline
     mCtx.beginPath();
     mCtx.moveTo(86, 6);
@@ -281,7 +281,7 @@ class SpriteManager {
     mCtx.fillStyle = '#ffffff';
     mCtx.fillRect(82, 40, 8, 4);
 
-    // Gothic Arched Front Door with Iron Bars
+    // altic Arched Front Door with Iron Bars
     mCtx.fillStyle = '#110c17';
     mCtx.fillRect(68, 88, 36, 56);
     mCtx.fillStyle = '#591829'; // Blood wood door
@@ -289,8 +289,8 @@ class SpriteManager {
     mCtx.fillStyle = '#ff3b5c';
     mCtx.fillRect(78, 98, 16, 12); // Glowing crimson stained glass
 
-    // Arched Gothic Windows with Stained Glass
-    const drawGothicWindow = (wx, wy) => {
+    // Arched altic Windows with Stained Glass
+    const drawalticWindow = (wx, wy) => {
       mCtx.fillStyle = '#110c17';
       mCtx.fillRect(wx, wy, 26, 32);
       mCtx.fillStyle = '#8e44ad'; // Purple glow
@@ -301,12 +301,12 @@ class SpriteManager {
       mCtx.fillRect(wx + 12, wy + 3, 2, 26); // Window frame
       mCtx.fillRect(wx + 3, wy + 16, 20, 2);
     };
-    drawGothicWindow(26, 90);
-    drawGothicWindow(120, 90);
+    drawalticWindow(26, 90);
+    drawalticWindow(120, 90);
 
     this.propTextures['manor_vampire'] = manorCanvas;
 
-    // 4. GOTHIC GRAVEYARD TOMBSTONE (Cross headstone)
+    // 4. altIC GRAVEYARD TOMBSTONE (Cross headstone)
     const { canvas: tombCanvas1, ctx: tmCtx1 } = this.createOffscreen(48, 54);
     tmCtx1.fillStyle = 'rgba(0,0,0,0.3)';
     tmCtx1.ellipse(24, 46, 16, 4, 0, 0, Math.PI * 2);
@@ -326,7 +326,7 @@ class SpriteManager {
     tmCtx1.fillRect(14, 38, 8, 6);
     this.propTextures['tombstone_cross'] = tombCanvas1;
 
-    // 5. GOTHIC TOMBSTONE (Arched RIP Headstone)
+    // 5. altIC TOMBSTONE (Arched RIP Headstone)
     const { canvas: tombCanvas2, ctx: tmCtx2 } = this.createOffscreen(48, 54);
     tmCtx2.fillStyle = 'rgba(0,0,0,0.3)';
     tmCtx2.ellipse(24, 46, 16, 4, 0, 0, Math.PI * 2);
@@ -538,12 +538,12 @@ class SpriteManager {
 
   /**
    * =======================================================================
-   * 🥀 MOWSKITO - REWORKED COOL GOTHIC EMO HEROINE
+   * 🥀 MOWSKITO - REWORKED COOL altIC alt HEROINE
    * =======================================================================
-   * - Light Moroccan skin tone (#ebd0b9 with #cca17a contour)
-   * - Smokey gothic eyeliner, dark lips, cool edgy expression (not doll-like!)
-   * - Wavy neck-length jet-black hair with vibrant blood-red streaks & emo parting
-   * - Dark gothic emo attire: black velvet/leather trench jacket, silver chains/zippers,
+   * - Light  skin tone (#ebd0b9 with #cca17a contour)
+   * - Smokey altic eyeliner, dark lips, cool edgy expression (not doll-like!)
+   * - Wavy neck-length jet-black hair with vibrant blood-red streaks & alt parting
+   * - Dark altic alt attire: black velvet/leather trench jacket, silver chains/zippers,
    *   crimson corseted bodice, pleated dark skirt, fishnet/dark tights, heavy buckle boots
    * - 4 directions x 4 walking frames (Down, Up, Left, Right)
    */
@@ -597,7 +597,7 @@ class SpriteManager {
           ctx.fillRect(10, baseY + 22, 4, 8);
           ctx.fillRect(34, baseY + 22, 4, 8);
 
-          // 2. Heavy Gothic Buckle Platform Boots & Dark Tights
+          // 2. Heavy altic Buckle Platform Boots & Dark Tights
           ctx.fillStyle = '#1c1622'; // Dark tights
           const lLeg = 18 + (legSwing * 2);
           const rLeg = 26 - (legSwing * 2);
@@ -614,7 +614,7 @@ class SpriteManager {
           ctx.fillRect(lLeg, baseY + 54, 4, 2);
           ctx.fillRect(rLeg, baseY + 54, 4, 2);
 
-          // 3. Gothic Pleated Skirt & Silver Chains
+          // 3. altic Pleated Skirt & Silver Chains
           ctx.fillStyle = CLOTH_BLACK;
           ctx.beginPath();
           ctx.moveTo(17, baseY + 28);
@@ -630,7 +630,7 @@ class SpriteManager {
           ctx.fillRect(16, baseY + 32, 6, 2);
           ctx.fillRect(20, baseY + 34, 6, 2);
 
-          // 4. Velvet/Leather Gothic Jacket & Corset
+          // 4. Velvet/Leather altic Jacket & Corset
           ctx.fillStyle = CLOTH_BLACK;
           ctx.fillRect(16, baseY + 20, 16, 10);
           ctx.fillStyle = CLOTH_CRIMSON;
@@ -650,7 +650,7 @@ class SpriteManager {
           ctx.fillRect(12 - legSwing, baseY + 32, 4, 3);
           ctx.fillRect(32 + legSwing, baseY + 32, 4, 3);
 
-          // 6. Cool Head & Face (Moroccan Skin, Gothic Makeup)
+          // 6. Cool Head & Face (mm Skin, altic Makeup)
           ctx.fillStyle = SKIN_SHADOW;
           ctx.fillRect(20, baseY + 18, 8, 3);
           ctx.fillStyle = SKIN_BASE;
@@ -658,7 +658,7 @@ class SpriteManager {
           ctx.fillStyle = SKIN_LIGHT;
           ctx.fillRect(16, baseY + 7, 16, 10);
 
-          // Smokey Gothic Eyes (Sharp dark eyeliner, cool confident gaze)
+          // Smokey altic Eyes (Sharp dark eyeliner, cool confident gaze)
           ctx.fillStyle = '#08050b'; // Heavy black eyeliner/shadow
           ctx.fillRect(16, baseY + 9, 6, 5);
           ctx.fillRect(26, baseY + 9, 6, 5);
@@ -672,13 +672,13 @@ class SpriteManager {
           ctx.fillRect(18, baseY + 10, 1, 1);
           ctx.fillRect(28, baseY + 10, 1, 1);
 
-          // Dark Berry Gothic Lips (Cool smirk)
+          // Dark Berry altic Lips (Cool smirk)
           ctx.fillStyle = '#6e0f22';
           ctx.fillRect(22, baseY + 16, 5, 2);
           ctx.fillStyle = '#9e1834';
           ctx.fillRect(23, baseY + 16, 3, 1);
 
-          // 7. Wavy Jet-Black Hair with Crimson Emo Streaks & Bangs
+          // 7. Wavy Jet-Black Hair with Crimson alt Streaks & Bangs
           ctx.fillStyle = HAIR_BLACK;
           ctx.fillRect(13, baseY + 1, 22, 7);
           ctx.fillRect(12, baseY + 4, 4, 16); // Left lock
@@ -694,7 +694,7 @@ class SpriteManager {
           ctx.fillRect(16, baseY + 4, 2, 5);
           ctx.fillRect(25, baseY + 3, 2, 6);
 
-          // Gothic Silver Hair Clip
+          // altic Silver Hair Clip
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(13, baseY + 3, 3, 3);
 
@@ -779,7 +779,7 @@ class SpriteManager {
           ctx.fillRect(15, baseY + 7, 10, 9);
           ctx.fillRect(14, baseY + 11, 2, 2); // Nose
 
-          // Gothic Smokey Eye Profile
+          // altic Smokey Eye Profile
           ctx.fillStyle = '#08050b';
           ctx.fillRect(15, baseY + 8, 5, 4);
           ctx.fillStyle = '#ffffff';
@@ -835,7 +835,7 @@ class SpriteManager {
           ctx.fillRect(23, baseY + 7, 10, 9);
           ctx.fillRect(32, baseY + 11, 2, 2);
 
-          // Gothic Eye Right
+          // altic Eye Right
           ctx.fillStyle = '#08050b';
           ctx.fillRect(28, baseY + 8, 5, 4);
           ctx.fillStyle = '#ffffff';
