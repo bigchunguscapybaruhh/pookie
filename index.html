@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mowskito's Gothic Realm</title>
+  
+  <!-- Retro Pixel & Cartoon Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Full Viewport Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Proximity Floating Interaction Bubble -->
+  <div id="proximityPrompt" class="proximity-prompt hidden">
+    <span class="key-badge">SPACE</span>
+    <span class="prompt-text">Examine</span>
+  </div>
+
+  <!-- Retro Gothic JRPG Dialog Window -->
+  <div id="dialogOverlay" class="dialog-overlay hidden">
+    <div class="jrpg-window dialog-box">
+      <!-- Nameplate -->
+      <div class="jrpg-nameplate">
+        <span class="speaker-icon">🦇</span>
+        <span id="dialogSpeaker" class="speaker-name">chest for mowskito</span>
+      </div>
+
+      <!-- Dialogue Content with Typewriter Effect -->
+      <div class="dialog-content">
+        <p id="dialogText" class="dialog-text"></p>
+      </div>
+
+      <!-- Password Input Form -->
+      <div id="passwordSection" class="password-section hidden">
+        <div class="input-wrapper">
+          <span class="input-prompt">whut is the pawsword:</span>
+          <input 
+            type="password" 
+            id="passwordInput" 
+            class="jrpg-input" 
+            maxlength="32" 
+            autocomplete="off" 
+            spellcheck="false"
+            placeholder="enter pawsword..."
+          >
+          <button id="togglePasswordVisibility" class="btn-toggle-eye" title="Toggle Visibility">👁️</button>
+        </div>
+        <div id="passwordError" class="password-error hidden">❌ The lock clicks shut. Wrong pawsword!</div>
+      </div>
+
+      <!-- Dialogue Action Buttons -->
+      <div id="dialogActions" class="dialog-actions">
+        <button id="btnDialogSubmit" class="jrpg-btn primary">
+          <span class="cursor-pointer">▶</span> <span id="btnSubmitText">Unlock</span>
+        </button>
+        <button id="btnDialogCancel" class="jrpg-btn secondary">
+          <span class="cursor-pointer">▶</span> Cancel
+        </button>
+      </div>
+
+      <!-- Bouncing dialogue arrow indicator -->
+      <div id="dialogNextIndicator" class="dialog-next-arrow hidden">▼</div>
+    </div>
+  </div>
+
+  <!-- Secret Reward Modal with Purrever Question -->
+  <div id="rewardModal" class="reward-modal hidden">
+    <div class="jrpg-window reward-box">
+      <div class="reward-sparkles-header">🦇 🕯️ 🩸 SECRET UNLOCKED 🩸 🕯️ 🦇</div>
+      <div class="reward-icon-container">
+        <div class="treasure-glow"></div>
+        <div class="treasure-icon-large">🗝️</div>
+      </div>
+      <h2 id="rewardTitle" class="reward-title">A Message For Mowskito</h2>
+      <div id="rewardContent" class="reward-content">
+        <!-- Decrypted secret payload appears here -->
+      </div>
+      
+      <!-- Purrever Question & 2 Choices -->
+      <div class="purrever-section">
+        <div class="purrever-question">do u wanna stay together purrever</div>
+        <div class="purrever-actions">
+          <button id="btnYes1" class="jrpg-btn primary yes-btn">
+            <span class="cursor-pointer">▶</span> yes
+          </button>
+          <button id="btnYes2" class="jrpg-btn primary yes-btn">
+            <span class="cursor-pointer">▶</span> yes
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen Purrever Cat Screen -->
+  <div id="purreverOverlay" class="purrever-overlay hidden">
+    <div class="purrever-backdrop"></div>
+    <img id="purreverImg" src="purrever.png" alt="purrever thumbs up" class="purrever-image">
+    <div class="purrever-hint">🐾 (Click anywhere to continue) 🐾</div>
+  </div>
+
+  <!-- Goofy Cartoon "Partners in Crime" Contract Modal -->
+  <div id="contractModal" class="contract-modal hidden">
+    <div class="contract-box">
+      <div class="contract-wax-seal">🐾 SEALED</div>
+      <div class="contract-header">
+        <span class="contract-stars">★ ★ ★</span>
+        <h1 class="contract-title">OFFICIAL PARTNERS IN CRIME CONTRACT</h1>
+        <span class="contract-stars">★ ★ ★</span>
+      </div>
+      <p class="contract-subtitle">Legally & Emotionally Binding in All Realms & Timezones</p>
+
+      <div class="contract-body">
+        <div class="contract-clause">
+          <span class="clause-num">Article I:</span> The undersigned hereby officially agree to stay together <strong>purrever</strong>, through all goofy quests, spooky graveyards, and mysterious password chests.
+        </div>
+        <div class="contract-clause">
+          <span class="clause-num">Article II:</span> In the event that one party is addressed as <em>"bitchass"</em>, the mandatory reciprocal response is officially codified as: <strong>"no you're the bitchass (i love you hehehe)"</strong>.
+        </div>
+        <div class="contract-clause">
+          <span class="clause-num">Article III:</span> Mutual goofy antics, infinite affection, and lifelong companionship are permanent, non-negotiable, and certified under Cat Law 👍.
+        </div>
+      </div>
+
+      <div class="contract-signatures">
+        <div class="sig-block">
+          <div class="sig-line">mowskito (Hajar with H)</div>
+          <div class="sig-label">Partner in Crime #1 🦇</div>
+        </div>
+        <div class="sig-stamp">
+          <div class="stamp-circle">APPROVED<br>100%</div>
+        </div>
+        <div class="sig-block">
+          <div class="sig-line">Karol with K</div>
+          <div class="sig-label">Partner in Crime #2 🐾</div>
+        </div>
+      </div>
+
+      <div class="contract-footer">
+        <button id="btnCloseContract" class="contract-btn">
+          ✨ Sealed Purrever & Ever ✨
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Right Minimal Retro Toolbar -->
+  <div class="top-toolbar">
+    <button id="btnAudioToggle" class="retro-tool-btn" title="Toggle Sound (M)">
+      <span id="audioIcon">🔊</span>
+      <span class="tool-label">SOUND</span>
+    </button>
+    <button id="btnControlsHelp" class="retro-tool-btn" title="Mowskito's Guide (H)">
+      <span>📜</span>
+      <span class="tool-label">MOWSKITO</span>
+    </button>
+  </div>
+
+  <!-- Mowskito's Guide & Controls Modal -->
+  <div id="helpModal" class="help-modal hidden">
+    <div class="jrpg-window help-box">
+      <div class="jrpg-nameplate">
+        <span class="speaker-icon">📜</span>
+        <span class="speaker-name">MOWSKITO'S GUIDE</span>
+      </div>
+      <div class="help-content">
+        <h3>⌨️ Controls for Mowskito</h3>
+        <ul class="help-list">
+          <li><strong>Move:</strong> <span class="key-tag">W</span><span class="key-tag">A</span><span class="key-tag">S</span><span class="key-tag">D</span> or <span class="key-tag">Arrow Keys</span></li>
+          <li><strong>Dash / Sprint:</strong> Hold <span class="key-tag">Shift</span></li>
+          <li><strong>Examine / Open:</strong> <span class="key-tag">Space</span> or <span class="key-tag">Enter</span> (or Click)</li>
+          <li><strong>Mute Sound:</strong> <span class="key-tag">M</span></li>
+        </ul>
+        <p class="help-hint">
+          🦇 <em>Tip for Mowskito:</em> The chest is heavily camouflaged among the dark trees, headstones in the graveyard, and spooky ruins! Search closely.
+        </p>
+      </div>
+      <div class="dialog-actions">
+        <button id="btnCloseHelp" class="jrpg-btn primary">
+          <span class="cursor-pointer">▶</span> Got it!
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Virtual D-Pad & Action Button -->
+  <div id="mobileControls" class="mobile-controls hidden">
+    <div class="dpad-container">
+      <button id="dpadUp" class="dpad-btn up">▲</button>
+      <div class="dpad-middle">
+        <button id="dpadLeft" class="dpad-btn left">◀</button>
+        <div class="dpad-center"></div>
+        <button id="dpadRight" class="dpad-btn right">▶</button>
+      </div>
+      <button id="dpadDown" class="dpad-btn down">▼</button>
+    </div>
+    <div class="mobile-action-container">
+      <button id="mobileActionBtn" class="mobile-action-btn">
+        <span>ACTION</span>
+        <small>[SPACE]</small>
+      </button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/config.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/sprites.js"></script>
+  <script src="js/engine/camera.js"></script>
+  <script src="js/engine/input.js"></script>
+  <script src="js/engine/map.js"></script>
+  <script src="js/entities/chest.js"></script>
+  <script src="js/entities/player.js"></script>
+  <script src="js/ui/dialog.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
