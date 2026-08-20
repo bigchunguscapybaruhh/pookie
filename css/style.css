@@ -117,6 +117,55 @@ html, body {
   transition: opacity 0.2s ease;
 }
 
+/* Hunger quest HUD */
+.hunger-hud {
+  position: absolute; top: 14px; left: 14px; z-index: 80; width: 210px;
+  background: rgba(23, 13, 36, .94); border: 2px solid #8f3150; border-radius: 6px;
+  padding: 8px 10px; box-shadow: 2px 3px 0 #09040b; color: #fff; font-family: var(--font-pixel);
+}
+.hunger-label { font-size: 10px; color: #ffd1aa; display: flex; justify-content: space-between; }
+.hunger-track { height: 12px; margin: 7px 0 6px; background: #190e1d; border: 1px solid #6b3445; overflow: hidden; }
+.hunger-fill { height: 100%; background: linear-gradient(90deg, #bd2543, #f39a39, #ffe373); transition: width .45s ease; box-shadow: 0 0 8px #ef7d36; }
+.hunger-quest { font-family: var(--font-vt); font-size: 17px; color: #ffb6c6; }
+.spider-hud { position: absolute; top: 14px; left: 236px; z-index: 80; padding: 9px 11px; background: rgba(23,13,36,.94); border: 2px solid #78558d; border-radius: 6px; box-shadow: 2px 3px 0 #09040b; color: #e9d4ff; font-family: var(--font-pixel); font-size: 9px; }
+.spider-achievement { position: fixed; z-index: 160; top: 26px; left: 50%; transform: translateX(-50%); width: min(92vw, 620px); padding: 16px; text-align: center; background: linear-gradient(135deg,#251234,#51245b); border: 3px solid #f4da7c; box-shadow: 0 0 0 4px #210d2b, 0 8px 22px #000; color: #ffe98a; font-family: var(--font-pixel); font-size: 10px; line-height: 1.8; animation: achievementDrop .5s cubic-bezier(.18,.89,.32,1.28); }.spider-achievement strong { color: #fff; font-size: 11px; } @keyframes achievementDrop { from { transform: translate(-50%,-100px) scale(.5); opacity: 0; } to { transform: translate(-50%,0) scale(1); opacity: 1; } }
+.death-overlay { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, rgba(78,29,61,.92), rgba(0,0,0,.98)); cursor: pointer; }.death-card { width: min(90vw, 480px); padding: 26px; text-align: center; color: #fff; border: 5px solid #a6a0b5; background: linear-gradient(145deg,#2b2634,#100d17); box-shadow: 0 0 0 6px #19141e, 0 15px 40px #000; animation: ripAppear .5s cubic-bezier(.18,.89,.32,1.28); }.death-skull { font-size: 66px; }.death-rip { font-family: var(--font-pixel); font-size: clamp(40px,12vw,72px); color: #dedbe7; text-shadow: 4px 4px #6a304d; margin: 2px 0 15px; }.death-card p { font-family: var(--font-vt); font-size: 28px; color: #ffcbdd; }.death-pizza { font-size: 45px; margin: 12px; filter: grayscale(1); }.death-card small { font-family: var(--font-pixel); font-size: 8px; line-height: 1.6; color: #ccc5dc; } @keyframes ripAppear { from { transform: scale(.45) rotate(-8deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+
+/* Pizza cutlery minigame */
+.pizza-overlay { position: fixed; inset: 0; z-index: 130; display: flex; align-items: center; justify-content: center; background: rgba(7, 3, 10, .88); backdrop-filter: blur(3px); }
+.pizza-box { width: min(92vw, 570px); padding: 22px; text-align: center; }
+.pizza-title { color: #ffcc72; font-size: 13px; text-shadow: 2px 2px #3e1021; }
+.pizza-instruction { min-height: 42px; font-family: var(--font-vt); font-size: 22px; color: #fff0dc; line-height: 1.15; }
+.pizza-tools { display: flex; justify-content: center; gap: 12px; margin: 8px 0 14px; }
+.pizza-timer { display: inline-block; margin: 10px 0 0; padding: 7px 11px; color: #fff0b0; border: 2px solid #c75050; background: #2d1020; font-size: 11px; }
+.pizza-grid { width: min(75vw, 280px); aspect-ratio: 1; margin: 12px auto 6px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 8px; background: #873b20; border: 5px solid #502316; box-shadow: 0 5px 0 #160811; }
+.pizza-square { border: 2px solid #c76c25; background: linear-gradient(135deg, #f6c75f, #d77929); cursor: crosshair; font-size: 25px; transition: transform .08s, filter .08s; }.pizza-square:hover { transform: scale(1.05); filter: brightness(1.15); }.pizza-square.cut { background: repeating-linear-gradient(135deg,#f7d476 0 7px,#dc852e 7px 14px); border-color: #fff0bd; }.pizza-square.eaten { background: #33162a; border-color: #4c293f; cursor: default; opacity: .8; }
+.pizza-fail-overlay { position: fixed; inset: 0; z-index: 145; display: flex; align-items: center; justify-content: center; background: rgba(31,7,14,.93); cursor: pointer; }.pizza-fail-card { width: min(90vw, 520px); text-align: center; padding: 22px; border: 4px solid #fff1cf; background: #401426; box-shadow: 0 0 0 5px #c42b43, 0 12px 28px #000; animation: pizzaFacePop .3s ease-out; }.chef-face { font-size: 72px; }.pizza-splat { font-size: 115px; margin: -27px 0 -22px; animation: pizzaSplat .25s infinite alternate; }.pizza-fail-text { color: #ffe27c; font-size: 19px; line-height: 1.4; }.pizza-fail-card p { margin: 13px 0; color: #fff; font-family: var(--font-vt); font-size: 24px; }.pizza-fail-card button { margin: auto; } @keyframes pizzaFacePop { from { transform: scale(.4) rotate(-15deg); opacity:0; } to { transform: scale(1) rotate(0); opacity:1; } } @keyframes pizzaSplat { from { transform: rotate(-8deg) scale(.96); } to { transform: rotate(8deg) scale(1.08); } }
+.pizza-tool, .eat-piece { font-family: var(--font-pixel); font-size: 10px; color: #fff; cursor: pointer; border: 2px solid #b57a82; background: #2f1327; padding: 9px 12px; box-shadow: 2px 2px #080307; }
+.pizza-tool.selected { background: #9e2739; border-color: #ffdb83; transform: translateY(-2px); }
+.pizza-wheel { position: relative; margin: auto; width: 220px; height: 220px; border-radius: 50%; overflow: hidden; background: #d8832b; border: 7px solid #8b3f1e; box-shadow: inset 0 0 0 5px #f5c75e, 0 5px 0 #180c16; }
+.pizza-slice { position: absolute; left: 50%; top: 50%; width: 50%; height: 50%; transform-origin: 0 0; border: 1px solid rgba(75, 22, 15, .65); background: linear-gradient(140deg, transparent 46%, rgba(255,235,163,.18) 47%); cursor: crosshair; }
+.pizza-slice::after { content: '🍅'; font-size: 18px; position: absolute; left: 57px; top: 22px; transform: rotate(var(--rot)); }
+.pizza-slice.cut { background: rgba(70, 25, 25, .32); box-shadow: inset 2px 0 #fff0be; cursor: default; }
+.slice-0 { transform: rotate(0deg) skewY(-30deg); --rot: 0deg; }.slice-1 { transform: rotate(60deg) skewY(-30deg); --rot: -60deg; }.slice-2 { transform: rotate(120deg) skewY(-30deg); --rot: -120deg; }.slice-3 { transform: rotate(180deg) skewY(-30deg); --rot: -180deg; }.slice-4 { transform: rotate(240deg) skewY(-30deg); --rot: -240deg; }.slice-5 { transform: rotate(300deg) skewY(-30deg); --rot: -300deg; }
+.pizza-pieces { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px; margin-top: 16px; min-height: 36px; }
+.eat-piece { font-size: 8px; background: #68401d; border-color: #ffd074; }.eat-piece.eaten { opacity: .45; text-decoration: line-through; }
+
+/* Wild typing encounter */
+.battle-overlay { position: fixed; inset: 0; z-index: 140; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, rgba(63,36,74,.88), rgba(5,2,8,.96)); }
+.battle-box { width: min(92vw, 620px); padding: 24px; text-align: center; }
+.battle-flash { color: #ffe981; font-size: 11px; animation: battlePulse .55s infinite alternate; }
+.battle-monster { height: 82px; font-size: 70px; line-height: 1; margin-top: 10px; filter: drop-shadow(4px 5px 0 #120812); animation: monsterWobble 1s infinite ease-in-out; }
+.battle-name { color: #fff; font-size: 15px; margin: 5px 0 12px; }
+.battle-rule { font-family: var(--font-vt); font-size: 21px; color: #f6b6d1; margin-bottom: 11px; }
+.battle-line { background: #120a18; border: 2px dashed #a15b91; padding: 12px; font-family: var(--font-vt); font-size: 27px; color: #fff6db; margin-bottom: 10px; }
+.battle-input { width: 100%; padding: 12px; border: 2px solid #e7d0e5; background: #08050d; color: #fff; font-family: var(--font-vt); font-size: 25px; outline: none; }.battle-input:focus { border-color: #ffdb74; box-shadow: 0 0 12px #b86a91; }
+.race-labels { display: flex; justify-content: space-between; margin: 13px 2px 4px; color: #ffb7d0; font-size: 8px; }.race-track { height: 18px; background: #130a18; border: 2px solid #72506e; position: relative; overflow: hidden; }.race-fill { position: absolute; height: 50%; left: 0; transition: width .06s linear; }.player-race { top: 0; background: #70d9a3; }.monster-race { bottom: 0; background: #d65d82; }.battle-status { min-height: 24px; margin-top: 11px; color: #ffe784; font-family: var(--font-vt); font-size: 21px; }
+@keyframes battlePulse { from { transform: scale(1); } to { transform: scale(1.04); color: #fff; } } @keyframes monsterWobble { 0%,100% { transform: rotate(-3deg) translateY(0); } 50% { transform: rotate(3deg) translateY(-4px); } }
+
+.loser-overlay { position: fixed; inset: 0; z-index: 150; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.9); cursor: pointer; }
+.loser-card { width: min(90vw, 620px); text-align: center; animation: loserPop .22s ease-out; }.loser-cat { display: block; width: 100%; max-height: 62vh; object-fit: contain; border: 5px solid #fff; box-shadow: 0 0 0 5px #dd345c, 0 12px 28px #000; image-rendering: auto; }.loser-text { color: #fff; font-family: var(--font-pixel); font-size: clamp(22px, 6vw, 43px); margin-top: 20px; text-shadow: 4px 4px #ca193d; animation: loserShake .14s infinite; }.loser-hint { margin-top: 15px; font-family: var(--font-vt); font-size: 22px; color: #ffc6d5; } @keyframes loserPop { from { transform: scale(.55) rotate(-8deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } } @keyframes loserShake { 0%,100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
+
 .proximity-prompt::after {
   content: '';
   position: absolute;
@@ -941,4 +990,3 @@ html, body {
   cursor: pointer;
   touch-action: none;
 }
-

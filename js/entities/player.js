@@ -49,7 +49,7 @@ class Player {
 
   update(deltaTime, map) {
     // If dialogue modal or settings are open, halt player movement
-    if (Dialog.isOpen) {
+    if (window.gameInstance?.isDead || Dialog.isOpen || TypingBattle.active || TypingBattle.lossShowing || PizzaGame.active || PizzaGame.failShowing) {
       this.isMoving = false;
       this.frameIndex = 0;
       return;
@@ -65,6 +65,7 @@ class Player {
 
     this.isMoving = (dx !== 0 || dy !== 0);
 
+    this.movedThisFrame = false;
     if (this.isMoving) {
       // Determine primary direction
       if (Math.abs(dx) > Math.abs(dy)) {
@@ -89,12 +90,14 @@ class Player {
       const newHitboxX = this.getHitbox(this.x + moveX, this.y);
       if (!map.checkCollision(newHitboxX)) {
         this.x += moveX;
+        this.movedThisFrame = true;
       }
 
       // 2. Try Y movement
       const newHitboxY = this.getHitbox(this.x, this.y + moveY);
       if (!map.checkCollision(newHitboxY)) {
         this.y += moveY;
+        this.movedThisFrame = true;
       }
 
       // Animation frame advancement

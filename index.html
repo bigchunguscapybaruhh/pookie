@@ -22,6 +22,24 @@
     <span class="prompt-text">Examine</span>
   </div>
 
+  <!-- First quest: a deliberately urgent little hunger meter -->
+  <div id="hungerHud" class="hunger-hud" aria-label="Hunger meter">
+    <div class="hunger-label">🍕 HUNGER <span id="hungerValue">20</span>/100</div>
+    <div class="hunger-track"><div id="hungerFill" class="hunger-fill" style="width: 20%"></div></div>
+    <div id="hungerQuest" class="hunger-quest">Quest: find something suspiciously edible...</div>
+  </div>
+  <div id="spiderHud" class="spider-hud" aria-label="Spider collection counter">🕷️ SPOODERS <span id="spiderCount">0</span>/8</div>
+
+  <div id="deathOverlay" class="death-overlay hidden">
+    <div class="death-card">
+      <div class="death-skull">☠️</div>
+      <div class="death-rip">RIP</div>
+      <p>You became too hungry to be dramatic.</p>
+      <div class="death-pizza">🍕</div>
+      <small>click anywhere to respawn with your dignity mostly intact</small>
+    </div>
+  </div>
+
   <!-- Retro Gothic JRPG Dialog Window -->
   <div id="dialogOverlay" class="dialog-overlay hidden">
     <div class="jrpg-window dialog-box">
@@ -175,6 +193,7 @@
           <li><strong>Dash / Sprint:</strong> Hold <span class="key-tag">Shift</span></li>
           <li><strong>Examine / Open:</strong> <span class="key-tag">Space</span> or <span class="key-tag">Enter</span> (or Click)</li>
           <li><strong>Mute Sound:</strong> <span class="key-tag">M</span></li>
+          <li><strong>Wild encounters:</strong> Keep walking — type faster than the monster!</li>
         </ul>
         <p class="help-hint">
           🦇 <em>Tip for Mowskito:</em> The chest is heavily camouflaged among the dark trees, headstones in the graveyard, and spooky ruins! Search closely.
@@ -215,9 +234,14 @@
   <script src="js/engine/input.js"></script>
   <script src="js/engine/map.js"></script>
   <script src="js/entities/chest.js"></script>
+  <script src="js/entities/pizza-chef.js"></script>
+  <script src="js/entities/spider.js"></script>
+  <script src="js/entities/graveyard-goof.js"></script>
   <script src="js/entities/player.js"></script>
   <script src="js/ui/dialog.js"></script>
   <script src="js/ui/lockpick.js"></script>
+  <script src="js/ui/pizza-game.js"></script>
+  <script src="js/ui/typing-battle.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

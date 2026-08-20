@@ -30,6 +30,7 @@ const CONFIG = {
   PLAYER_RUN_SPEED: 5.4,   // Sprint speed (pixels per frame)
   
   CHEST_INTERACTION_RADIUS: 56, // Distance to interact with chest
+  NPC_INTERACTION_RADIUS: 64,
 
   AUDIO_ENABLED_DEFAULT: true,
   AUDIO_VOLUME: 0.28

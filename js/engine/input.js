@@ -41,6 +41,9 @@ class InputController {
     // First user gesture initializes audio
     Sound.ensureContext();
 
+    // Inputs created by minigames are not present when this controller starts.
+    this.isInputFocused = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+
     if (this.isInputFocused) {
       if (e.key === 'Enter') {
         // Trigger dialog submit if enter pressed in input

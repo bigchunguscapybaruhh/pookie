@@ -9,6 +9,10 @@ class DialogController {
     this.typewriterInterval = null;
     this.isTyping = false;
     this.activeChest = null;
+    this.activeChef = null;
+    this.activeGraveyardGoof = null;
+    this.dialogLocked = false;
+    this.chefStep = 0;
 
     // DOM Elements
     this.overlay = document.getElementById('dialogOverlay');
@@ -50,7 +54,10 @@ class DialogController {
     this.btnSubmit.addEventListener('click', () => this.handlePasswordSubmit());
 
     // Cancel / Close button
-    this.btnCancel.addEventListener('click', () => this.close());
+    this.btnCancel.addEventListener('click', () => {
+      if (this.activeChef && this.chefStep === 1) this.advanceChefDialog();
+      else this.close();
+    });
 
     // Toggle password eye visibility
     this.toggleEyeBtn.addEventListener('click', () => {
@@ -97,6 +104,49 @@ class DialogController {
       const isMuted = Sound.toggleMute();
       document.getElementById('audioIcon').textContent = isMuted ? '🔇' : '🔊';
     });
+  }
+
+  openPizzaChef(chef) {
+    this.activeChef = chef; this.chefStep = 0; this.isOpen = true;
+    this.overlay.classList.remove('hidden'); this.speakerEl.textContent = 'CHEF PIZZARONI';
+    this.passwordSection.classList.add('hidden'); this.passwordError.classList.add('hidden');
+    this.btnCancel.textContent = 'Leave'; this.btnSubmitText.textContent = 'Continue';
+    this.typewrite("EYYYY, hungry little bat! Your boyfriend ate here already and exploded the whole toilet with diarrhea. I am hoping you don't do the same thing.");
+  }
+
+  openGraveyardGoof(goof) {
+    this.activeGraveyardGoof = goof; this.goofStep = 0; this.dialogLocked = true; this.isOpen = true;
+    this.overlay.classList.remove('hidden'); this.speakerEl.textContent = 'THE GRAVEYARD GOOF';
+    this.passwordSection.classList.add('hidden'); this.passwordError.classList.add('hidden');
+    this.btnCancel.classList.add('hidden'); this.btnSubmitText.textContent = '...okay';
+    this.typewrite("bro how slow are you to let me catch you, you didn't even make an effort zzzzzzzzz");
+  }
+
+  advanceGraveyardGoofDialog() {
+    if (this.isTyping) return;
+    const nonsense = [
+      "now that we're here anyway, let me tell you about my business idea: haunted socks. They scream when wet, which is basically customer feedback.",
+      "My cousin is a decorative spoon. He is doing great, except he keeps trying to pay rent in soup. The landlord is a bat, so it gets complicated.",
+      "Also I once tried to scare a pigeon, but it stared at me so hard I apologised and gave it my lunch money.",
+      "Anyway, thanks for attending my seminar. I have no pamphlets because I ate them. You may leave now."
+    ];
+    if (this.goofStep < nonsense.length) {
+      this.goofStep++; this.btnSubmitText.textContent = this.goofStep === nonsense.length ? 'Finally...' : 'Please stop...';
+      this.typewrite(nonsense[this.goofStep - 1]);
+    } else { this.dialogLocked = false; this.close(); }
+  }
+
+  advanceChefDialog() {
+    if (this.isTyping) return;
+    if (this.chefStep === 0) {
+      this.chefStep = 1; this.btnSubmitText.textContent = 'Tuna pizza'; this.btnCancel.textContent = 'Chicken pizza';
+      this.typewrite('Choose your destiny: a tuna pizza, or a chicken pizza? Both are medically adventurous.');
+    } else if (this.chefStep === 1) {
+      this.chefStep = 2; this.btnCancel.classList.add('hidden'); this.btnSubmitText.textContent = 'Start eating';
+      this.typewrite('Perfetto, but you will need to eat the pizza with a knife and fork! No hands allowed!!');
+    } else {
+      this.close(); this.btnCancel.classList.remove('hidden'); PizzaGame.start(() => window.gameInstance.finishPizzaQuest());
+    }
   }
 
   /**
@@ -157,6 +207,8 @@ class DialogController {
    * Handles password submission and verification
    */
   async handlePasswordSubmit() {
+    if (this.activeGraveyardGoof) { this.advanceGraveyardGoofDialog(); return; }
+    if (this.activeChef) { this.advanceChefDialog(); return; }
     if (this.activeChest && this.activeChest.isOpened) {
       this.close();
       this.showReward();
@@ -203,20 +255,36 @@ class DialogController {
   }
 
   close() {
+    if (this.dialogLocked) return;
     clearInterval(this.typewriterInterval);
     this.isOpen = false;
     this.overlay.classList.add('hidden');
     this.passwordInput.blur();
+    if (this.activeGraveyardGoof) this.activeGraveyardGoof.giveUp();
+    this.activeGraveyardGoof = null;
+    this.dialogLocked = false;
+    this.activeChef = null;
+    this.btnCancel.textContent = 'Cancel';
+    this.btnCancel.classList.remove('hidden');
     Sound.playMenuCancel();
   }
 
-  updateProximityPrompt(chest, player, camera) {
-    if (this.isOpen || !chest || !this.proximityPrompt) return;
+  updateProximityPrompt(chest, player, camera, chef) {
+    if (this.isOpen || !this.proximityPrompt) return;
+
+    if (chef && chef.isNear(player)) {
+      const screenPos = camera.worldToScreen(chef.x + chef.width / 2, chef.y - 12);
+      this.proximityPrompt.style.left = `${screenPos.x}px`; this.proximityPrompt.style.top = `${screenPos.y}px`;
+      this.proximityPrompt.querySelector('.prompt-text').textContent = 'Talk to chef'; this.proximityPrompt.classList.remove('hidden'); return;
+    }
+
+    if (!chest) { this.proximityPrompt.classList.add('hidden'); return; }
 
     if (chest.isNear(player)) {
       const screenPos = camera.worldToScreen(chest.x + chest.width / 2, chest.y - 12);
       this.proximityPrompt.style.left = `${screenPos.x}px`;
       this.proximityPrompt.style.top = `${screenPos.y}px`;
+      this.proximityPrompt.querySelector('.prompt-text').textContent = 'Examine';
       this.proximityPrompt.classList.remove('hidden');
     } else {
       this.proximityPrompt.classList.add('hidden');

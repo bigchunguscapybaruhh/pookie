@@ -10,6 +10,9 @@ class SoundSystem {
     this.masterGain = null;
     this.initialized = false;
     this.lastStepTime = 0;
+    this.musicTimer = null;
+    this.musicStep = 0;
+    this.battleMusic = false;
   }
 
   init() {
@@ -33,6 +36,129 @@ class SoundSystem {
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
+    }
+    this.startBackgroundMusic();
+  }
+
+  /** A quiet, original, spooky-but-silly 8-bit wandering loop. Starts after first interaction. */
+  startBackgroundMusic() {
+    if (!this.ctx || this.musicTimer) return;
+    // Original haunted picnic tune: mellow, bouncy, and lightly mischievous.
+    const melody = [392, 440, 523.25, 440, 349.23, 392, 493.88, 440, 329.63, 392, 466.16, 440, 293.66, 349.23, 392, 329.63];
+    const bass = [98, 98, 87.31, 87.31, 82.41, 82.41, 73.42, 73.42];
+    const battleMelody = [523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 493.88, 587.33, 698.46, 783.99, 880, 783.99, 659.25, 587.33, 523.25, 493.88];
+    const battleBass = [130.81, 130.81, 146.83, 146.83, 110, 110, 123.47, 123.47];
+    const tick = () => {
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime;
+      const activeMelody = this.battleMusic ? battleMelody : melody;
+      const activeBass = this.battleMusic ? battleBass : bass;
+      const note = activeMelody[this.musicStep % activeMelody.length];
+      const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+      osc.type = this.battleMusic ? 'square' : 'triangle'; osc.frequency.setValueAtTime(note, t);
+      gain.gain.setValueAtTime(this.battleMusic ? 0.05 : 0.034, t); gain.gain.exponentialRampToValueAtTime(0.0001, t + (this.battleMusic ? 0.13 : 0.24));
+      osc.connect(gain); gain.connect(this.masterGain); osc.start(t); osc.stop(t + 0.2);
+      if (this.musicStep % 2 === 0) {
+        const low = this.ctx.createOscillator(), lowGain = this.ctx.createGain();
+        low.type = this.battleMusic ? 'sawtooth' : 'sine'; low.frequency.setValueAtTime(activeBass[Math.floor(this.musicStep / 2) % activeBass.length], t);
+        lowGain.gain.setValueAtTime(this.battleMusic ? 0.045 : 0.035, t); lowGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+        low.connect(lowGain); lowGain.connect(this.masterGain); low.start(t); low.stop(t + 0.34);
+      }
+      // A tiny clownish bell ping every fourth beat; deliberately subtle under movement and effects.
+      if (!this.battleMusic && this.musicStep % 4 === 3) {
+        const ping = this.ctx.createOscillator(), pingGain = this.ctx.createGain();
+        ping.type = 'sine'; ping.frequency.setValueAtTime(note * 2, t);
+        pingGain.gain.setValueAtTime(.018, t); pingGain.gain.exponentialRampToValueAtTime(.0001, t + .1);
+        ping.connect(pingGain); pingGain.connect(this.masterGain); ping.start(t); ping.stop(t + .11);
+      }
+      this.musicStep++;
+      this.musicTimer = setTimeout(tick, this.battleMusic ? 155 : 255);
+    };
+    tick();
+  }
+
+  setBattleMusic(active) { this.battleMusic = active; }
+
+  playSpiderCollect() {
+    if (this.isMuted) return;
+    this.ensureContext(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [740, 1040, 1480].forEach((freq, i) => {
+      const osc = this.ctx.createOscillator(), gain = this.ctx.createGain(), at = t + i * 0.055;
+      osc.type = 'square'; osc.frequency.setValueAtTime(freq, at); gain.gain.setValueAtTime(.065, at); gain.gain.exponentialRampToValueAtTime(.0001, at + .12);
+      osc.connect(gain); gain.connect(this.masterGain); osc.start(at); osc.stop(at + .13);
+    });
+  }
+
+  /** Loud, original cartoon chef cackle, paired with the pizza-face fail screen. */
+  playChefLaugh() {
+    if (this.isMuted) return;
+    this.ensureContext(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [0, .14, .28, .42, .62, .76, .9].forEach((offset, i) => {
+      const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+      osc.type = i % 2 ? 'sawtooth' : 'square'; osc.frequency.setValueAtTime(570 - (i % 3) * 105, t + offset);
+      osc.frequency.exponentialRampToValueAtTime(220 + (i % 2) * 35, t + offset + .12);
+      gain.gain.setValueAtTime(.17, t + offset); gain.gain.exponentialRampToValueAtTime(.0001, t + offset + .145);
+      osc.connect(gain); gain.connect(this.masterGain); osc.start(t + offset); osc.stop(t + offset + .16);
+      const chuckle = this.ctx.createOscillator(), chuckleGain = this.ctx.createGain();
+      chuckle.type = 'triangle'; chuckle.frequency.setValueAtTime(860 - i * 28, t + offset);
+      chuckleGain.gain.setValueAtTime(.055, t + offset); chuckleGain.gain.exponentialRampToValueAtTime(.0001, t + offset + .1);
+      chuckle.connect(chuckleGain); chuckleGain.connect(this.masterGain); chuckle.start(t + offset); chuckle.stop(t + offset + .11);
+    });
+  }
+
+  playHungerDeath() {
+    if (this.isMuted) return;
+    this.ensureContext(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [392, 311.13, 233.08, 155.56].forEach((freq, i) => {
+      const osc = this.ctx.createOscillator(), gain = this.ctx.createGain(), at = t + i * .16;
+      osc.type = i === 3 ? 'sawtooth' : 'triangle'; osc.frequency.setValueAtTime(freq, at);
+      gain.gain.setValueAtTime(.08, at); gain.gain.exponentialRampToValueAtTime(.0001, at + .28);
+      osc.connect(gain); gain.connect(this.masterGain); osc.start(at); osc.stop(at + .3);
+    });
+  }
+
+  playZombieGroan() {
+    if (this.isMuted) return;
+    this.ensureContext(); if (!this.ctx) return;
+    const t = this.ctx.currentTime, osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(105 + Math.random() * 38, t); osc.frequency.linearRampToValueAtTime(68, t + .32);
+    gain.gain.setValueAtTime(.055, t); gain.gain.exponentialRampToValueAtTime(.0001, t + .35);
+    osc.connect(gain); gain.connect(this.masterGain); osc.start(t); osc.stop(t + .36);
+  }
+
+  playFart() {
+    if (this.isMuted) return;
+    this.ensureContext(); if (!this.ctx) return;
+    // Filtered noise produces a far less "bleep"-like and far more embarrassing fart.
+    const t = this.ctx.currentTime, duration = .48, frames = Math.floor(this.ctx.sampleRate * duration);
+    const buffer = this.ctx.createBuffer(1, frames, this.ctx.sampleRate), data = buffer.getChannelData(0);
+    for (let i = 0; i < frames; i++) {
+      const envelope = Math.pow(1 - i / frames, .55);
+      data[i] = (Math.random() * 2 - 1) * envelope * (0.58 + .42 * Math.sin(i * .014));
+    }
+    const source = this.ctx.createBufferSource(), filter = this.ctx.createBiquadFilter(), gain = this.ctx.createGain();
+    source.buffer = buffer; filter.type = 'bandpass'; filter.frequency.setValueAtTime(155, t); filter.frequency.exponentialRampToValueAtTime(68, t + duration); filter.Q.value = 2.4;
+    gain.gain.setValueAtTime(.16, t); gain.gain.exponentialRampToValueAtTime(.0001, t + duration);
+    source.connect(filter); filter.connect(gain); gain.connect(this.masterGain); source.start(t);
+  }
+
+  /** Goofy synthetic wheeze-laugh for the defeat cat. */
+  playLoserLaugh() {
+    if (this.isMuted) return;
+    this.ensureContext(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 11; i++) {
+      const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+      const start = t + i * 0.115;
+      osc.type = i % 3 === 0 ? 'sawtooth' : 'square';
+      osc.frequency.setValueAtTime(180 + (i % 4) * 55, start);
+      osc.frequency.exponentialRampToValueAtTime(95 + (i % 2) * 20, start + 0.09);
+      gain.gain.setValueAtTime(0.055, start);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.11);
+      osc.connect(gain); gain.connect(this.masterGain); osc.start(start); osc.stop(start + 0.12);
     }
   }
 
