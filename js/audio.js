@@ -13,6 +13,12 @@ class SoundSystem {
     this.musicTimer = null;
     this.musicStep = 0;
     this.battleMusic = false;
+    this.bossMusic = false;
+    this.bossTrackTimer = null;
+    this.bossTrackStep = 0;
+    this.discoMusic = false;
+    this.caveMusic = false;
+    this.clownMusic = false;
   }
 
   init() {
@@ -48,15 +54,23 @@ class SoundSystem {
     const bass = [98, 98, 87.31, 87.31, 82.41, 82.41, 73.42, 73.42];
     const battleMelody = [523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 493.88, 587.33, 698.46, 783.99, 880, 783.99, 659.25, 587.33, 523.25, 493.88];
     const battleBass = [130.81, 130.81, 146.83, 146.83, 110, 110, 123.47, 123.47];
+    const discoMelody = [523.25, 659.25, 783.99, 659.25, 587.33, 739.99, 880, 739.99];
+    const discoBass = [130.81, 130.81, 146.83, 146.83, 164.81, 164.81, 146.83, 146.83];
+    const caveMelody = [523.25,659.25,587.33,493.88,440,523.25,392,440];
+    const caveBass = [130.81,98,116.54,87.31];
+    const clownMelody = [349.23,466.16,329.63,523.25,293.66,392,466.16,261.63];
+    const clownBass = [87.31,87.31,73.42,82.41];
     const tick = () => {
       if (!this.ctx) return;
+      // The witch uses its own dedicated non-chiptune soundtrack below.
+      if (this.bossMusic) { this.musicTimer = setTimeout(tick, 100); return; }
       const t = this.ctx.currentTime;
-      const activeMelody = this.battleMusic ? battleMelody : melody;
-      const activeBass = this.battleMusic ? battleBass : bass;
+      const activeMelody = this.clownMusic ? clownMelody : this.caveMusic ? caveMelody : this.discoMusic ? discoMelody : (this.battleMusic || this.bossMusic) ? battleMelody : melody;
+      const activeBass = this.clownMusic ? clownBass : this.caveMusic ? caveBass : this.discoMusic ? discoBass : (this.battleMusic || this.bossMusic) ? battleBass : bass;
       const note = activeMelody[this.musicStep % activeMelody.length];
       const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
-      osc.type = this.battleMusic ? 'square' : 'triangle'; osc.frequency.setValueAtTime(note, t);
-      gain.gain.setValueAtTime(this.battleMusic ? 0.05 : 0.034, t); gain.gain.exponentialRampToValueAtTime(0.0001, t + (this.battleMusic ? 0.13 : 0.24));
+      osc.type = (this.battleMusic || this.bossMusic || this.discoMusic || this.clownMusic) ? 'square' : this.caveMusic ? 'sine' : 'triangle'; osc.frequency.setValueAtTime(this.bossMusic ? note * .5 : note, t);
+      gain.gain.setValueAtTime(this.bossMusic ? .075 : this.discoMusic ? .06 : this.battleMusic ? 0.05 : 0.034, t); gain.gain.exponentialRampToValueAtTime(0.0001, t + ((this.battleMusic || this.bossMusic || this.discoMusic) ? 0.13 : 0.24));
       osc.connect(gain); gain.connect(this.masterGain); osc.start(t); osc.stop(t + 0.2);
       if (this.musicStep % 2 === 0) {
         const low = this.ctx.createOscillator(), lowGain = this.ctx.createGain();
@@ -72,12 +86,45 @@ class SoundSystem {
         ping.connect(pingGain); pingGain.connect(this.masterGain); ping.start(t); ping.stop(t + .11);
       }
       this.musicStep++;
-      this.musicTimer = setTimeout(tick, this.battleMusic ? 155 : 255);
+      this.musicTimer = setTimeout(tick, (this.battleMusic || this.bossMusic) ? 115 : this.discoMusic ? 145 : this.clownMusic ? 190 : this.caveMusic ? 305 : 255);
     };
     tick();
   }
 
   setBattleMusic(active) { this.battleMusic = active; }
+  setBossMusic(active) {
+    this.bossMusic = active;
+    if (active) this.startBossTrack();
+    else { clearInterval(this.bossTrackTimer); this.bossTrackTimer = null; }
+  }
+
+  /** Original 150 BPM gothic-metal loop: downpicked distorted riff, kick/snare, and pipe-organ stabs. */
+  startBossTrack() {
+    if (!this.ctx || this.bossTrackTimer) return;
+    this.bossTrackStep = 0;
+    const riff = [65.41,65.41,73.42,65.41,61.74,61.74,55,61.74,65.41,65.41,82.41,73.42,65.41,61.74,55,49];
+    const organChords = [[130.81,155.56,196,261.63],[123.47,146.83,185,246.94],[110,130.81,164.81,220],[98,123.47,146.83,196]];
+    const noiseBurst = (t, bright) => {
+      const size = Math.floor(this.ctx.sampleRate * .11), buffer = this.ctx.createBuffer(1,size,this.ctx.sampleRate), data=buffer.getChannelData(0);
+      for(let i=0;i<size;i++) data[i]=(Math.random()*2-1)*(1-i/size);
+      const src=this.ctx.createBufferSource(), filter=this.ctx.createBiquadFilter(), gain=this.ctx.createGain();src.buffer=buffer;filter.type='highpass';filter.frequency.value=bright?1800:800;gain.gain.setValueAtTime(bright?.04:.07,t);gain.gain.exponentialRampToValueAtTime(.0001,t+.1);src.connect(filter);filter.connect(gain);gain.connect(this.masterGain);src.start(t);
+    };
+    const beat = () => {
+      if (!this.bossMusic || !this.ctx) return;
+      const t=this.ctx.currentTime, step=this.bossTrackStep, note=riff[step%riff.length];
+      // downpicked electric-guitar approximation, pushed through waveshaping distortion
+      const guitar=this.ctx.createOscillator(), shaper=this.ctx.createWaveShaper(), filter=this.ctx.createBiquadFilter(), gain=this.ctx.createGain(), curve=new Float32Array(256);
+      for(let i=0;i<curve.length;i++){const x=i*2/255-1;curve[i]=Math.tanh(5*x);} shaper.curve=curve;guitar.type='sawtooth';guitar.frequency.setValueAtTime(note,t);filter.type='lowpass';filter.frequency.value=1050;gain.gain.setValueAtTime(.13,t);gain.gain.exponentialRampToValueAtTime(.0001,t+.18);guitar.connect(shaper);shaper.connect(filter);filter.connect(gain);gain.connect(this.masterGain);guitar.start(t);guitar.stop(t+.2);
+      // kick on every beat, snare on the backbeat, hissy cymbal on eighths
+      const kick=this.ctx.createOscillator(),kg=this.ctx.createGain();kick.type='sine';kick.frequency.setValueAtTime(150,t);kick.frequency.exponentialRampToValueAtTime(45,t+.13);kg.gain.setValueAtTime(.16,t);kg.gain.exponentialRampToValueAtTime(.0001,t+.15);kick.connect(kg);kg.connect(this.masterGain);kick.start(t);kick.stop(t+.16);noiseBurst(t,true);if(step%4===2)noiseBurst(t,false);
+      if(step%4===0){organChords[Math.floor(step/4)%organChords.length].forEach(f=>{const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type='triangle';o.frequency.setValueAtTime(f,t);g.gain.setValueAtTime(.035,t);g.gain.exponentialRampToValueAtTime(.0001,t+.52);o.connect(g);g.connect(this.masterGain);o.start(t);o.stop(t+.55);});}
+      this.bossTrackStep++;this.bossTrackTimer=setTimeout(beat,100);
+    }; beat();
+  }
+  setDiscoMusic(active) { this.discoMusic = active; }
+  setCaveMusic(active) { this.caveMusic = active; }
+  setClownMusic(active) { this.clownMusic = active; }
+  playDisco() { if (this.isMuted) return; this.ensureContext(); const t=this.ctx.currentTime; [523,659,784,1046,784,659,523].forEach((f,i)=>{const o=this.ctx.createOscillator(),g=this.ctx.createGain(),at=t+i*.13;o.type='square';o.frequency.setValueAtTime(f,at);g.gain.setValueAtTime(.09,at);g.gain.exponentialRampToValueAtTime(.0001,at+.18);o.connect(g);g.connect(this.masterGain);o.start(at);o.stop(at+.2);}); }
 
   playSpiderCollect() {
     if (this.isMuted) return;

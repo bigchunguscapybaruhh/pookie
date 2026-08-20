@@ -49,7 +49,7 @@ class Player {
 
   update(deltaTime, map) {
     // If dialogue modal or settings are open, halt player movement
-    if (window.gameInstance?.isDead || Dialog.isOpen || TypingBattle.active || TypingBattle.lossShowing || PizzaGame.active || PizzaGame.failShowing) {
+    if (window.gameInstance?.isDead || Dialog.isOpen || TypingBattle.active || TypingBattle.lossShowing || PizzaGame.active || PizzaGame.failShowing || BossBattle.active || NumberDog.active || ClownGame.active) {
       this.isMoving = false;
       this.frameIndex = 0;
       return;
@@ -124,6 +124,7 @@ class Player {
 
   render(ctx, camera) {
     const screenPos = camera.worldToScreen(this.x, this.y);
+    if (window.gameInstance?.isFrog) { ctx.fillStyle='#183826';ctx.fillRect(screenPos.x+10,screenPos.y+28,29,19);ctx.fillStyle='#57b34a';ctx.fillRect(screenPos.x+7,screenPos.y+22,35,21);ctx.fillRect(screenPos.x+11,screenPos.y+16,10,10);ctx.fillRect(screenPos.x+28,screenPos.y+16,10,10);ctx.fillStyle='#111522';ctx.fillRect(screenPos.x+14,screenPos.y+19,4,5);ctx.fillRect(screenPos.x+31,screenPos.y+19,4,5);ctx.fillStyle='#e8d86c';ctx.fillRect(screenPos.x+21,screenPos.y+32,7,3);ctx.fillStyle='#57b34a';ctx.fillRect(screenPos.x+3,screenPos.y+39,9,6);ctx.fillRect(screenPos.x+37,screenPos.y+39,9,6);return; }
     const spritesList = Sprites.heroSprites[this.direction];
     const sprite = (spritesList && spritesList[this.frameIndex]) ? spritesList[this.frameIndex] : spritesList[0];
 

@@ -20,6 +20,13 @@ class Game {
     this.spiders = [];
     this.spiderCount = 0;
     this.graveyardGoof = null;
+    this.bossHouse = null;
+    this.rabbitHole = null;
+    this.caveMode = false;
+    this.caveCats = []; this.caveDog = null; this.caveNumbers = [];
+    this.caveMap = { checkCollision: rect => rect.x < 40 || rect.x + rect.width > 920 || rect.y < 80 || rect.y + rect.height > 600 };
+    this.isFrog = false;
+    this.frogClown = null;
     this.walkingTime = 0;
     this.encounterAt = this.rollEncounterDistance();
 
@@ -52,6 +59,8 @@ class Game {
     this.spawnSpiders();
     // Hanging around the graveyard's lower edge, where it can sneak up from behind headstones.
     this.graveyardGoof = new GraveyardGoof(14 * CONFIG.TILE_SIZE, 10 * CONFIG.TILE_SIZE);
+    this.bossHouse = new BossHouse(51 * CONFIG.TILE_SIZE, 36 * CONFIG.TILE_SIZE);
+    this.rabbitHole = new RabbitHole(5 * CONFIG.TILE_SIZE, 31 * CONFIG.TILE_SIZE);
     this.updateHungerUI();
     this.updateSpiderUI();
 
@@ -90,7 +99,7 @@ class Game {
 
   handleCanvasClick(e) {
     Sound.ensureContext();
-    if (!this.player || Dialog.isOpen || Lockpick.isActive || PizzaGame.active || PizzaGame.failShowing) return;
+    if (!this.player || Dialog.isOpen || Lockpick.isActive || PizzaGame.active || PizzaGame.failShowing || BossBattle.active || NumberDog.active) return;
 
     const rect = this.canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
@@ -99,6 +108,8 @@ class Game {
 
     const clickedSpider = this.spiders.find(spider => !spider.collected && spider.isNear(this.player) && Math.hypot(worldPos.x - spider.getCenter().x, worldPos.y - spider.getCenter().y) < 38);
     if (clickedSpider) { this.collectSpider(clickedSpider); return; }
+
+    if (this.isFrog && this.frogClown?.isNear(this.player) && Math.hypot(worldPos.x-(this.frogClown.x+24),worldPos.y-(this.frogClown.y+30))<48) { Dialog.openFrogClown(this.frogClown); return; }
 
     const chestCenter = this.chest.getCenter();
     const clickDist = Math.hypot(worldPos.x - chestCenter.x, worldPos.y - chestCenter.y);
@@ -113,6 +124,7 @@ class Game {
         Dialog.openPizzaChef(this.pizzaChef);
       }
     }
+    if (!this.isFrog && this.bossHouse && this.bossHouse.isNear(this.player) && Math.hypot(worldPos.x - this.bossHouse.getCenter().x, worldPos.y - this.bossHouse.getCenter().y) < 90) BossBattle.start();
   }
 
   updateHungerUI() {
@@ -125,6 +137,23 @@ class Game {
   }
 
   finishPizzaQuest() { this.hunger = 100; this.updateHungerUI(); }
+  turnIntoFrog() { this.isFrog = true; this.frogClown = new FrogClown(30 * CONFIG.TILE_SIZE, 19 * CONFIG.TILE_SIZE); Sound.playError(); }
+  cureFrog() { this.isFrog=false;this.frogClown=null;Sound.playChestOpen(); }
+  enterCave() {
+    this.caveMode = true; this.caveNumbers = []; this.caveCats = [];
+    const names = ['SIR MEOWINGTON','PUDDLES','LORD CRUMB','BINGUS PRIME','MRS. WHISKERBLAST']; const colors = ['#e8a4b5','#d9c475','#9ec2df','#d5a5ec','#eab082'];
+    const positions = [[170,170],[430,140],[700,185],[275,410],[650,430]];
+    const yaps = [
+      ['I invented a new sport called competitive blinking. I am undefeated because everyone keeps missing the important part.','My coach is a lampshade. He says I need to believe in myself, but he is plugged into nothing.'],
+      ['I tried to bake a cake using only vibes and a library card. It tasted like a very disappointed bookshelf.','Then the cake sued me for emotional damages. The judge was a hamster wearing glasses.'],
+      ['Do you ever look at a spoon and wonder if it is just a tiny shovel for soup emergencies?','I asked the cave wall that exact question and now it will not make eye contact with me.'],
+      ['I own a business selling invisible hats for ghosts. Sales are terrible, but the customers are incredibly transparent.','My accountant is a frog, which sounds relevant, but I refuse to explain why.'],
+      ['Yesterday I got into an argument with a sock. It said I was being too foot-focused.','Anyway, I am taking a personal day to process this betrayal and eat one crunchy moon pebble.']
+    ];
+    positions.forEach((p,i) => { let n; do { n = 1 + Math.floor(Math.random()*25); } while (this.caveNumbers.includes(n)); this.caveNumbers.push(n); const cat = new CaveCat(p[0],p[1],colors[i],names[i],i); cat.lines=[...yaps[i],`oh yeah all of that aside, the number ${n} is pretty cool. wink wink. Remember it.`]; this.caveCats.push(cat); });
+    this.caveDog = new CaveDog(842,260); this.player.x=95; this.player.y=305; this.camera.x=0; this.camera.y=0; Sound.setCaveMusic(true);
+  }
+  exitCave() { this.caveMode=false; this.player.x=this.rabbitHole.x+80; this.player.y=this.rabbitHole.y+30; Sound.setCaveMusic(false); }
 
   updateHunger(deltaTime) {
     this.hungerTimer += deltaTime;
@@ -176,7 +205,8 @@ class Game {
   rollEncounterDistance() { return 4500 + Math.random() * 2000; }
 
   updateEncounters(deltaTime) {
-    if (TypingBattle.active || TypingBattle.lossShowing || Dialog.isOpen || Lockpick.isActive || PizzaGame.active || PizzaGame.failShowing) return;
+    if (this.caveMode) { this.walkingTime = 0; return; }
+    if (TypingBattle.active || TypingBattle.lossShowing || BossBattle.active || Dialog.isOpen || Lockpick.isActive || PizzaGame.active || PizzaGame.failShowing) return;
     // The streak only counts real movement. Bumping into a wall or stopping resets it.
     if (this.player.movedThisFrame) {
       this.walkingTime += deltaTime;
@@ -191,44 +221,64 @@ class Game {
     this.updateHunger(deltaTime);
     if (this.isDead) return;
     // 1. Update Player
-    this.player.update(deltaTime, this.map);
+    this.player.update(deltaTime, this.caveMode ? this.caveMap : this.map);
 
     // 2. Update Chest & Particles
     if (this.chest) {
       this.chest.update(deltaTime);
     }
     if (this.pizzaChef) this.pizzaChef.update(deltaTime);
-    if (this.graveyardGoof && !Dialog.isOpen && !TypingBattle.active && !TypingBattle.lossShowing && !PizzaGame.active && !PizzaGame.failShowing) {
+    if (this.caveMode === false && this.frogClown === null && !this.isFrog) { /* clown only exists for frogs */ }
+    if (this.caveMode && this.rabbitHole) { /* cave is intentionally quiet except for cats and dog */ }
+    if (!this.caveMode && this.graveyardGoof && !Dialog.isOpen && !TypingBattle.active && !TypingBattle.lossShowing && !PizzaGame.active && !PizzaGame.failShowing) {
       this.graveyardGoof.update(deltaTime, this.map, this.player, () => Dialog.openGraveyardGoof(this.graveyardGoof));
     }
     this.updateEncounters(deltaTime);
 
     // 3. Handle Chest Interaction via Action Key (Space / Enter / Mobile button)
-    if (Input.consumeAction() && !Dialog.isOpen && !Lockpick.isActive && !PizzaGame.active && !PizzaGame.failShowing && !TypingBattle.active && !TypingBattle.lossShowing) {
+    if (Input.consumeAction() && !Dialog.isOpen && !Lockpick.isActive && !PizzaGame.active && !PizzaGame.failShowing && !TypingBattle.active && !TypingBattle.lossShowing && !BossBattle.active && !NumberDog.active) {
+      if (this.caveMode) { const cat=this.caveCats.find(c=>c.isNear(this.player)); if(cat) Dialog.openCaveCat(cat,this.caveNumbers[cat.index]); else if(this.caveDog?.isNear(this.player)) NumberDog.start(this.caveNumbers,()=>this.exitCave()); return; }
       const spider = this.nearbySpider();
       if (spider) this.collectSpider(spider);
+      else if (this.isFrog && this.frogClown?.isNear(this.player)) Dialog.openFrogClown(this.frogClown);
+      else if (!this.isFrog && this.bossHouse && this.bossHouse.isNear(this.player)) BossBattle.start();
       else if (this.pizzaChef && this.pizzaChef.isNear(this.player)) Dialog.openPizzaChef(this.pizzaChef);
       else if (this.chest && this.chest.isNear(this.player)) Dialog.openChestPrompt(this.chest);
     }
 
     // 4. Update Camera
     this.camera.update();
+    if (this.caveMode) { this.camera.x = 0; this.camera.y = 0; }
 
     // 5. Update UI Proximity Indicators
-    Dialog.updateProximityPrompt(this.chest, this.player, this.camera, this.pizzaChef);
+    if (!this.caveMode) Dialog.updateProximityPrompt(this.chest, this.player, this.camera, this.pizzaChef);
+    else {
+      const prompt=document.getElementById('proximityPrompt'); const cat=this.caveCats.find(c=>c.isNear(this.player));
+      if (cat) { const screen=this.camera.worldToScreen(cat.x+22,cat.y-5);prompt.style.left=`${screen.x}px`;prompt.style.top=`${screen.y}px`;prompt.querySelector('.prompt-text').textContent='Listen to cat';prompt.classList.remove('hidden'); }
+      else if(this.caveDog?.isNear(this.player)){const screen=this.camera.worldToScreen(this.caveDog.x+34,this.caveDog.y-5);prompt.style.left=`${screen.x}px`;prompt.style.top=`${screen.y}px`;prompt.querySelector('.prompt-text').textContent='Ask dog about ladder';prompt.classList.remove('hidden');}else prompt.classList.add('hidden');
+    }
+    if (!this.caveMode && this.rabbitHole?.isNear(this.player)) this.enterCave();
     const spider = this.nearbySpider();
-    if (spider && !Dialog.isOpen && !Lockpick.isActive && !PizzaGame.active && !PizzaGame.failShowing && !TypingBattle.active && !TypingBattle.lossShowing) {
+    if (spider && !Dialog.isOpen && !Lockpick.isActive && !PizzaGame.active && !PizzaGame.failShowing && !TypingBattle.active && !TypingBattle.lossShowing && !BossBattle.active) {
       const screen = this.camera.worldToScreen(spider.x + 14, spider.y - 8);
       const prompt = document.getElementById('proximityPrompt');
       prompt.style.left = `${screen.x}px`; prompt.style.top = `${screen.y}px`;
       prompt.querySelector('.prompt-text').textContent = 'Catch spooder'; prompt.classList.remove('hidden');
     }
+    if (!spider && !this.isFrog && this.bossHouse && this.bossHouse.isNear(this.player) && !BossBattle.active) {
+      const screen = this.camera.worldToScreen(this.bossHouse.x + 78, this.bossHouse.y + 85);
+      const prompt = document.getElementById('proximityPrompt');
+      prompt.style.left = `${screen.x}px`; prompt.style.top = `${screen.y}px`;
+      prompt.querySelector('.prompt-text').textContent = 'Definitely do not enter'; prompt.classList.remove('hidden');
+    }
+    if (!spider && this.isFrog && this.frogClown?.isNear(this.player)) { const screen=this.camera.worldToScreen(this.frogClown.x+24,this.frogClown.y-5);const prompt=document.getElementById('proximityPrompt');prompt.style.left=`${screen.x}px`;prompt.style.top=`${screen.y}px`;prompt.querySelector('.prompt-text').textContent='Ask clown for help';prompt.classList.remove('hidden'); }
   }
 
   render() {
     const ctx = this.ctx;
     const camera = this.camera;
 
+    if (this.caveMode) { this.renderCave(ctx); return; }
     // Clear Canvas with spring green background
     ctx.fillStyle = '#a3dc72';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -260,6 +310,9 @@ class Game {
     if (this.graveyardGoof) {
       renderList.push({ depthY: this.graveyardGoof.y + this.graveyardGoof.height, render: () => this.graveyardGoof.render(ctx, camera) });
     }
+    if (this.bossHouse) renderList.push({ depthY: this.bossHouse.y + this.bossHouse.height, render: () => this.bossHouse.render(ctx, camera) });
+    if (this.frogClown) renderList.push({ depthY:this.frogClown.y+this.frogClown.height,render:()=>this.frogClown.render(ctx,camera) });
+    if (this.rabbitHole) renderList.push({ depthY: this.rabbitHole.y + this.rabbitHole.height, render: () => this.rabbitHole.render(ctx, camera) });
 
     this.spiders.forEach(spider => renderList.push({ depthY: spider.y + spider.height, render: () => spider.render(ctx, camera) }));
 
@@ -313,6 +366,12 @@ class Game {
 
     // Execute render calls in sorted order
     renderList.forEach(item => item.render());
+  }
+
+  renderCave(ctx) {
+    ctx.fillStyle='#110d1a';ctx.fillRect(0,0,this.canvas.width,this.canvas.height);ctx.fillStyle='#31243a';ctx.fillRect(35,75,900,540);ctx.fillStyle='#251a2c';for(let x=50;x<920;x+=52)for(let y=95;y<590;y+=48){ctx.fillRect(x,y,34,22);}
+    ctx.fillStyle='#d1a464';ctx.fillRect(870,180,18,210);ctx.fillRect(822,190,66,7);ctx.fillRect(822,250,66,7);ctx.fillRect(822,310,66,7);ctx.fillStyle='#fff0ae';ctx.font='13px monospace';ctx.fillText('THE LADDER OUT (DOG SAYS NO)',760,160);
+    const list=[...this.caveCats.map(c=>({d:c.y+45,r:()=>c.render(ctx,this.camera)})),{d:this.caveDog.y+60,r:()=>this.caveDog.render(ctx,this.camera)},{d:this.player.y+64,r:()=>this.player.render(ctx,this.camera)}];list.sort((a,b)=>a.d-b.d).forEach(x=>x.r());
   }
 
   loop(currentTime) {

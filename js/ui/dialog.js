@@ -11,6 +11,8 @@ class DialogController {
     this.activeChest = null;
     this.activeChef = null;
     this.activeGraveyardGoof = null;
+    this.activeCaveCat = null;
+    this.activeClown = null;
     this.dialogLocked = false;
     this.chefStep = 0;
 
@@ -122,6 +124,25 @@ class DialogController {
     this.typewrite("bro how slow are you to let me catch you, you didn't even make an effort zzzzzzzzz");
   }
 
+  openCaveCat(cat, number) {
+    this.activeCaveCat = cat; this.caveStep = 0; this.caveNumber = number; this.isOpen = true;
+    this.overlay.classList.remove('hidden'); this.speakerEl.textContent = cat.name;
+    this.passwordSection.classList.add('hidden'); this.passwordError.classList.add('hidden'); this.btnCancel.classList.add('hidden'); this.btnSubmitText.textContent = 'Continue';
+    this.typewrite(cat.lines[0]);
+  }
+  openFrogClown(clown) {
+    this.activeClown=clown;this.clownStep=0;this.isOpen=true;this.overlay.classList.remove('hidden');this.speakerEl.textContent='THE FROG CLOWN';this.passwordSection.classList.add('hidden');this.passwordError.classList.add('hidden');this.btnCancel.classList.add('hidden');this.btnSubmitText.textContent='...rude';
+    Sound.setClownMusic(true);
+    this.typewrite('WOW. A frog that used to be a person. Did the witch run out of normal punishments or did you simply dodge with your face?');
+  }
+  advanceClown(){if(this.isTyping)return;const lines=['Your outfit is very damp. Your career as a human has been replaced by one strong hop and an alarming croak.','I have seen bread dodge better than you. A wet bread roll. It was in a bag and still had more tactical awareness.','Luckily for you, I am licensed in reverse-clownification. Complete my very honest test and I will turn you back. Probably.'];if(this.clownStep<lines.length){this.clownStep++;this.btnSubmitText.textContent=this.clownStep===lines.length?'Do the test':'Keep yapping';this.typewrite(lines[this.clownStep-1]);}else{this.close();ClownGame.start(()=>window.gameInstance.cureFrog());}}
+  advanceCaveCat() {
+    if (this.isTyping) return;
+    this.caveStep++;
+    if (this.caveStep < this.activeCaveCat.lines.length) this.typewrite(this.activeCaveCat.lines[this.caveStep]);
+    else { this.dialogLocked = false; this.close(); }
+  }
+
   advanceGraveyardGoofDialog() {
     if (this.isTyping) return;
     const nonsense = [
@@ -207,6 +228,8 @@ class DialogController {
    * Handles password submission and verification
    */
   async handlePasswordSubmit() {
+    if (this.activeClown) { this.advanceClown(); return; }
+    if (this.activeCaveCat) { this.advanceCaveCat(); return; }
     if (this.activeGraveyardGoof) { this.advanceGraveyardGoofDialog(); return; }
     if (this.activeChef) { this.advanceChefDialog(); return; }
     if (this.activeChest && this.activeChest.isOpened) {
@@ -261,7 +284,10 @@ class DialogController {
     this.overlay.classList.add('hidden');
     this.passwordInput.blur();
     if (this.activeGraveyardGoof) this.activeGraveyardGoof.giveUp();
+    if (this.activeClown) Sound.setClownMusic(false);
     this.activeGraveyardGoof = null;
+    this.activeCaveCat = null;
+    this.activeClown = null;
     this.dialogLocked = false;
     this.activeChef = null;
     this.btnCancel.textContent = 'Cancel';
