@@ -1,0 +1,130 @@
+/* Mowzkitow braincell challenge — haunted night edition, NO rounded corners, all pixel */
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap');
+
+* { border-radius: 0 !important; box-sizing: border-box; image-rendering: pixelated; }
+html, body {
+  margin: 0; padding: 0;
+  background: #0d0618;
+  color: #f5e8ff;
+  font-family: 'DotGothic16', monospace;
+  overflow-x: hidden;
+}
+body {
+  background-image:
+    repeating-conic-gradient(#170b29 0% 25%, #0d0618 0% 50%);
+  background-size: 32px 32px;
+}
+#sakura-fall { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+.petal { position: absolute; top: -20px; font-size: 14px; animation: fall linear infinite; opacity: .8; }
+@keyframes fall { to { transform: translateY(110vh) rotate(360deg); } }
+
+header.topbar {
+  position: relative; z-index: 5;
+  background: #2a0e38;
+  border-bottom: 4px solid #ff8c42;
+  box-shadow: 0 4px 0 #6b2d8f, 0 8px 0 #000;
+  padding: 10px 14px;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+}
+.title-block h1 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 18px; margin: 0; color: #ffc98a;
+  text-shadow: 2px 2px 0 #5a1e00, 4px 4px 0 #000;
+  letter-spacing: 1px;
+}
+.title-block .jp-deco { font-size: 15px; color: #ffd9a8; background: #1a0a26; border: 3px solid #ff8c42; padding: 2px 8px; display: inline-block; margin-top: 6px; box-shadow: 3px 3px 0 #000; }
+.title-block .subtitle { font-size: 14px; color: #d9b8e8; margin-top: 4px; }
+.hud { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.hud-box {
+  background: #160a24; border: 3px solid #ff8c42; box-shadow: 4px 4px 0 #000;
+  padding: 6px 10px; font-size: 14px; min-width: 110px; text-align: center;
+}
+.hud-box b { color: #ffb35c; }
+.btn {
+  font-family: 'Press Start 2P', monospace; font-size: 11px;
+  background: #ffd93d; color: #2b1b4d; border: 3px solid #2b1b4d;
+  box-shadow: 4px 4px 0 #000; padding: 10px 12px; cursor: pointer;
+}
+.btn:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 #000; }
+.btn.alt { background: #7bffef; }
+.btn.pink { background: #ff6fae; color: #fff; text-shadow: 1px 1px 0 #000; }
+
+#layout { position: relative; z-index: 4; display: flex; gap: 12px; padding: 12px; max-width: 1240px; margin: 0 auto; }
+#canvas-wrap { position: relative; flex: 1; background: #06030f; border: 4px solid #ff8c42; box-shadow: 8px 8px 0 #000, 8px 8px 0 4px #3a1440; }
+#game { display: block; width: 100%; height: 640px; background: #2c5b30; image-rendering: pixelated; image-rendering: crisp-edges; }
+#side { width: 264px; display: flex; flex-direction: column; gap: 10px; }
+.panel { background: #221130; color: #f0dcff; border: 4px solid #0a0514; box-shadow: 6px 6px 0 #000; padding: 10px; }
+.panel h3 { font-family: 'Press Start 2P', monospace; font-size: 11px; margin: 0 0 8px 0; background: #12081f; color: #ff9a3d; padding: 6px; }
+.panel p, .panel li { font-size: 14px; line-height: 1.4; }
+.panel ul { padding-left: 18px; margin: 6px 0; }
+#minimap { width: 100%; height: auto; border: 3px solid #ff8c42; background: #0d0618; image-rendering: pixelated; }
+#log { height: 120px; overflow-y: auto; background: #0d0618; color: #9dff6e; border: 3px solid #0a0514; padding: 6px; font-size: 13px; }
+
+.overlay {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  background: rgba(20,8,40,.82); padding: 16px;
+}
+.overlay.hidden { display: none; }
+.card {
+  background: #fff7fb; color: #2b1b4d; border: 5px solid #2b1b4d; box-shadow: 10px 10px 0 #000, 10px 10px 0 5px #ff6fae;
+  max-width: 680px; width: 100%; padding: 18px; max-height: 92vh; overflow-y: auto;
+}
+.card h2 { font-family: 'Press Start 2P', monospace; font-size: 16px; margin: 0 0 10px 0; }
+.card .jp { background: #2b1b4d; color: #ff9ed2; display: inline-block; padding: 3px 8px; margin-bottom: 8px; letter-spacing: 2px; }
+.witch-show { display: flex; gap: 12px; align-items: center; }
+#witch-preview { width: 96px; height: 96px; border: 3px solid #2b1b4d; background: #ffd6e8; flex-shrink: 0; image-rendering: pixelated; }
+
+/* challenge modal specifics */
+#challenge-modal .card { max-width: 760px; }
+#zip-grid { display: grid; gap: 4px; background: #2b1b4d; border: 4px solid #2b1b4d; padding: 4px; margin: 10px auto; user-select: none; touch-action: none; }
+.zip-cell {
+  width: 100%; aspect-ratio: 1/1; background: #fff7fb; border: 2px solid #7b2ff7;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace; font-size: 16px; color: #2b1b4d;
+  cursor: pointer; position: relative;
+}
+.zip-cell.num { background: #ffd93d; font-weight: bold; }
+.zip-cell.path { background: #7bffef; }
+.zip-cell.path-num-ok { background: #8dff57; }
+.zip-cell.active-head { background: #ff6fae; color: #fff; }
+#typing-area { width: 100%; min-height: 90px; font-family: monospace; font-size: 16px; border: 3px solid #2b1b4d; padding: 8px; background: #fff; color: #111; }
+#typing-target { background: #2b1b4d; color: #fff; padding: 10px; font-size: 16px; margin-bottom: 8px; }
+#typing-target .done { color: #8dff57; }
+#typing-target .current { background: #ffd93d; color: #000; }
+#typing-target .todo { color: #fff; }
+.simon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.simon-btn { border: 4px solid #2b1b4d; padding: 22px; font-size: 28px; cursor: pointer; text-align: center; background: #fff; }
+.simon-btn.lit { filter: brightness(1.2); outline: 6px solid #ffd93d; transform: scale(1.03); }
+.riddle-opt { display: block; width: 100%; text-align: left; margin: 6px 0; background: #fff; border: 3px solid #2b1b4d; padding: 10px; cursor: pointer; font-size: 15px; }
+.riddle-opt:hover { background: #ffd93d; }
+
+/* victory — extremely exaggerated */
+#victory { background: radial-gradient(circle, #ff9ed2 0%, #7b2ff7 40%, #1a0f2e 100%); }
+#victory .card {
+  background: #fff0f6; border: 6px solid #ff0f7b; box-shadow: 0 0 40px #ffd93d, 12px 12px 0 #000;
+  text-align: center; max-width: 820px;
+}
+.victory-title {
+  font-family: 'Press Start 2P', monospace; font-size: 26px; color: #ff0f7b;
+  text-shadow: 2px 2px 0 #ffd93d, 4px 4px 0 #7b2ff7, 6px 6px 0 #000;
+  animation: wobble .5s infinite alternate;
+}
+@keyframes wobble { from { transform: rotate(-2deg) scale(1);} to { transform: rotate(2deg) scale(1.05);} }
+.victory-msg {
+  font-size: 22px; background: #ffd93d; border: 4px solid #2b1b4d; padding: 12px; margin: 12px 0;
+  box-shadow: 5px 5px 0 #000;
+}
+#hearts-cats { font-size: 30px; line-height: 1.2; word-break: break-all; }
+.rainbow { background: linear-gradient(90deg, red, orange, yellow, green, blue, purple); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: bold; }
+.confetti { position: absolute; font-size: 22px; animation: fall linear infinite; }
+
+#toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; background: #2b1b4d; color: #fff; border: 3px solid #ffd93d; padding: 8px 14px; display: none; font-size: 15px; box-shadow: 4px 4px 0 #000; }
+/* judgment cat: pops in on every puzzle fail, never blocks input */
+#judge-flash { position: fixed; right: 18px; bottom: 18px; z-index: 70; pointer-events: none; text-align: center; animation: judgepop .15s steps(2); }
+#judge-flash.hidden { display: none; }
+#judge-flash img { width: 220px; height: auto; border: 4px solid #0a0514; box-shadow: 6px 6px 0 #000; background: #fff; display: block; }
+#judge-fallback { font-size: 120px; line-height: 1; }
+.judge-cap { background: #0a0514; color: #ff9a3d; font-size: 13px; padding: 2px 8px; display: inline-block; margin-top: 4px; }
+@keyframes judgepop { from { transform: scale(1.35); } to { transform: scale(1); } }
+.controls-hint { font-size: 13px; background: #1a0f2e; color: #ffd93d; padding: 6px; margin-top: 8px; }
+@media (max-width: 980px) { #layout { flex-direction: column; } #side { width: 100%; } #game { height: 480px; } }
