@@ -1,1196 +1,1352 @@
-// Mowzkitow braincell challenge — full game
-(() => {
+// game.js — MOWZKITOW: Halloween open-world chapter (2000s Japanese town).
+// No IIFE: shares scope with audio.js / minigames.js.
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 const minimap = document.getElementById('minimap');
 const mctx = minimap.getContext('2d');
 mctx.imageSmoothingEnabled = false;
-// night-lighting rig: offscreen darkness mask with holes punched for lights
 const lightCv = document.createElement('canvas');
 const lctx = lightCv.getContext('2d');
 
-const TILE = 48; // rendered tile size (16x16 art scaled x3)
-const COLS = 31, ROWS = 31; // big maze, odd numbers
-let maze = [];
-let orbs = [];
-let cats = [];
-let particles = [];
-let braincells = 0;
-let challengesDone = 0;
-let startTime = 0, elapsed = 0, timerOn = false;
-let gameStarted = false, gameWon = false, paused = false;
-let cam = { x: 0, y: 0 };
+const TILE = 48;
+window.__gameStarted = false; window.__gamePaused = true;
 
-// ---- AUDIO: goofy chiptune loop with WebAudio ----
-let audioCtx = null, musicOn = true, musicTimer = null, step = 0;
-function initAudio() {
-  if (audioCtx) return;
-  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+// ---------- STATE ----------
+let paused = true, modalOpen = false, gameStarted = false;
+let dead = false, won = false, inMap = null; // null = town, 'pub' | 'cafe'
+let hunger = 100, meowllars = 8, standing = 0, questStage = 0; // 0: meet vet, 1: rematch, 2: gang grind, 3: boss open, 4: cleared
+let typingWins = 0, fish = 0;
+function locMusic(){ return inMap==='pub'?'pub':(inMap==='cafe'?'cafe':'field'); }
+let nowSec = 0, cam = { x: 0, y: 0 };
+let bossSpawned = false;
+function syncAudioFlags(){ window.__gameStarted = gameStarted; window.__gamePaused = paused || modalOpen || dead || won; }
+
+// ---------- MODAL / UI helpers (used by minigames.js) ----------
+const modal = document.getElementById('challenge-modal');
+const cTitle = document.getElementById('c-title'), cJp = document.getElementById('c-jp'), cBody = document.getElementById('c-body');
+function openModal(title, jp){
+  if (dlgOff) { try{dlgOff();}catch(_){} dlgOff = null; } // never leak a dialogue listener into a minigame
+  cTitle.textContent = title; cJp.textContent = jp || '';
+  cBody.innerHTML = '';
+  modal.classList.remove('hidden');
+  paused = true; modalOpen = true; syncAudioFlags();
+  for (const k in keys) keys[k] = false;
+  return cBody;
 }
-function playNote(freq, dur=0.14, type='square', vol=0.06, when=0) {
-  if (!audioCtx || !musicOn) return;
-  const t = audioCtx.currentTime + when;
-  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-  o.type = type; o.frequency.value = freq;
-  g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  o.connect(g); g.connect(audioCtx.destination);
-  o.start(t); o.stop(t + dur + 0.02);
+function closeModal(){
+  modal.classList.add('hidden');
+  paused = false; modalOpen = false; syncAudioFlags();
+  for (const k in keys) keys[k] = false;
 }
-function sfx(name) {
-  if (!audioCtx) return;
-  if (name==='pickup') { playNote(880,.1,'square',.08); playNote(1320,.12,'square',.08,.08); }
-  if (name==='win') { [523,659,784,1046,1318,1568].forEach((f,i)=>playNote(f,.18,'square',.09,i*0.09)); }
-  if (name==='hit') { playNote(160,.2,'sawtooth',.1); }
-  if (name==='step') { playNote(220+Math.random()*80,.05,'square',.02); }
-  if (name==='solve') { [784,988,1175,1568].forEach((f,i)=>playNote(f,.15,'triangle',.1,i*0.07)); }
-  if (name==='meow') { playNote(600,.15,'sawtooth',.07); playNote(900,.2,'sawtooth',.07,.12); }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none',2600); }
+function log(msg){ const el=document.getElementById('log'); if(!el) return; const d=document.createElement('div'); d.textContent='> '+msg; el.prepend(d); }
+function fmtClock(s){ s=Math.floor(s); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+function questBanner(text){
+  const b=document.getElementById('quest-banner'); b.innerHTML=text; b.classList.remove('hidden');
+  clearTimeout(b._h); b._h=setTimeout(()=>b.classList.add('hidden'),6000);
 }
-// Spooky skeleton-showtime loop: an ORIGINAL funky/gloopy/splunky swing tune
-// in the spirit of Bonetrousle (bone-xylo stabs, bouncy tuba, shuffling
-// skeleton drums) with a chiller halloween undertone: slower step, softer
-// kit, tolling bell + ghost-choir glides drifting over the groove.
-// Deliberately NOT the copyrighted melody — same vibe, different notes.
-const noteFreq = n => { // note name -> freq
-  const map={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
-  const m=/^([A-G])(#|b)?(\d)$/.exec(n); if(!m) return 0;
-  const semi=map[m[1]]+(m[2]==='#'?1:m[2]==='b'?-1:0);
-  const midi=(+m[3]+1)*12+semi;
-  return 440*Math.pow(2,(midi-69)/12);
+function questText(){
+  if (questStage===0) return '🔎 Speak to the veteran kitty at NEKO PUB (west side)';
+  if (questStage===1) return '🍶 Rematch! Talk to the veteran again.';
+  if (questStage===2) return `🐾 Cat gang member! Reach 50 standing (${standing}) — pet strays, beat raccoons`;
+  if (questStage===3) return `🐟 Gang grub run: bring 3 fish to the veteran (have ${fish}/3)`;
+  if (questStage===4) return '⚔️ Evil nyanner awaits in the EAST back alley!';
+  return '👑 Town saved. Nya forever.';
+}
+function refreshHUD(){
+  document.getElementById('hud-meow').textContent = meowllars;
+  document.getElementById('hud-stand').textContent = standing;
+  document.getElementById('hud-fish').textContent = fish;
+  const hb=document.getElementById('hud-hunger-fill');
+  if(hb){ hb.style.width=Math.max(0,hunger)+'%'; hb.style.background=hunger>50?'#7bff9e':(hunger>25?'#ffd93d':'#ff5a5a'); }
+  document.getElementById('hud-hunger-num').textContent = Math.ceil(Math.max(0,hunger));
+  document.getElementById('hud-quest').textContent = questText();
+}
+function addStanding(n){ standing=Math.max(0,standing+n); refreshHUD(); checkBossUnlock(); }
+function addMeow(n){ meowllars=Math.max(0,meowllars+n); refreshHUD(); }
+function checkBossUnlock(){
+  if(questStage===2 && standing>=50){
+    questStage=3; sfx('quest'); refreshHUD();
+    questBanner('📜 NEW QUEST: <b>bring 3 pond fish to the veteran!</b><br>The gang needs strength to face Nyanner. SE pond, big sign — you have <b>'+fish+'/3</b>! 南東の池!');
+    log('Fish quest! Bring 3 fish to the veteran!');
+  }
+}
+// dialogue box inside the modal; advances on SPACE / click. hunger stays paused.
+let dlgOff = null;
+function showDialogue(name, lines, cb){
+  const body = openModal(name, 'はなし • dialogue');
+  let i = 0, born = performance.now();
+  const nm = document.createElement('div'); nm.className='dlg-name'; nm.textContent = name; body.appendChild(nm);
+  const tx = document.createElement('div'); tx.className='dlg-text'; body.appendChild(tx);
+  const hint = document.createElement('div'); hint.className='dlg-hint'; hint.textContent = '[SPACE / click] ▶'; body.appendChild(hint);
+  if (dlgOff) { dlgOff(); dlgOff = null; }
+  const adv = () => {
+    if (performance.now() - born < 250) return;
+    i++;
+    if (i >= lines.length) { if (dlgOff){dlgOff();dlgOff=null;} closeModal(); if(cb)cb(); }
+    else { tx.innerHTML = lines[i]; born = performance.now(); }
+  };
+  tx.innerHTML = lines[0];
+  tx.onclick = adv;
+  dlgOff = _onKey(e => { if(e.code==='Space'||e.key===' '){ e.preventDefault(); adv(); } });
+}
+
+// ---------- MAP: open-world 2000s Japanese town (fixed layout) ----------
+// ground: 0 night-grass, 1 asphalt road, 2 sidewalk, 3 alley dirt, 4 plaza stone
+const TW = 56, TH = 40;
+let ground = [];
+let buildings = [];   // {x,y,w,h (px), kind, ...} solid
+let doors = [];       // {x,y,r, to:'pub'|'cafe'|'ramen', label}
+let machines = [];    // {x,y} vending machines (interact)
+let signs = [];       // {x,y,text,jp} district signposts (visual)
+let poles = [];       // {x,y} power poles (solid, wired)
+let lamps = [];       // {x,y} street lamps (solid, cast light)
+function T(x,y){ return {x:x*TILE, y:y*TILE}; }
+function buildTown(){
+  ground = Array.from({length:TH},()=>Array(TW).fill(0));
+  buildings=[]; doors=[]; machines=[]; signs=[]; poles=[]; lamps=[];
+  const R=(x0,y0,x1,y1,v)=>{ for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++) if(x>=0&&y>=0&&x<TW&&y<TH) ground[y][x]=v; };
+  R(0,16,TW-1,18,1); R(26,0,28,TH-1,1);           // main roads
+  R(0,15,TW-1,15,2); R(0,19,TW-1,19,2); R(25,0,25,TH-1,2); R(29,0,29,TH-1,2); // sidewalks
+  R(24,22,32,26,4);                                 // koban plaza
+  R(2,30,10,36,3); R(44,26,53,27,3); R(50,28,51,37,3); // alleys (west + east/boss)
+  R(14,8,22,9,3);                                   // back alley behind shops
+  const B=(tx,ty,tw,th,kind,o)=>{ const b=Object.assign({x:tx*TILE,y:ty*TILE,w:tw*TILE,h:th*TILE,kind},o||{}); buildings.push(b); return b; };
+  // west pub block + houses
+  B(8,8,7,4,'pub',{name:'NEKO PUB',jp:'ネコ'});
+  doors.push({x:11.5*TILE,y:12.6*TILE,r:40,to:'pub',label:'NEKO PUB'});
+  B(2,8,4,3,'house',{roof:'#3a4a6b'});
+  B(20,8,5,4,'netcafe',{name:'NET CAFE 24H',jp:'ネット'});
+  doors.push({x:22.5*TILE,y:12.6*TILE,r:44,to:'cafe',label:'NET CAFE'});
+  B(16,9,3,3,'house',{roof:'#6b3a3a'});
+  B(2,22,4,3,'house',{roof:'#3a5a3a'});
+  // central shop row (north of main road)
+  B(32,8,5,4,'shop',{name:'CONBINI',jp:'コンビニ',awning:'#ff5a5a'});
+  B(38,8,7,4,'ramen',{name:'INU RAMEN',jp:'イヌ'});
+  doors.push({x:41.5*TILE,y:12.6*TILE,r:44,to:'ramen',label:'RAMEN'});
+  B(46,8,4,3,'shop',{name:'KARAOKE',jp:'カラオケ',awning:'#35e0e6'});
+  B(32,22,3,3,'koban',{name:'KOBAN',jp:'交番'});
+  // east houses + pawn shop
+  B(46,12,5,3,'shop',{name:'PAWS PAWN',jp:'質屋',awning:'#c9a7ff'});
+  B(48,29,2,7,'house',{roof:'#2a2a3a'}); B(52,29,2,7,'house',{roof:'#3a2a2a'}); // boss alley walls
+  B(34,30,4,3,'house',{roof:'#4a3a6b'});
+  B(40,32,4,3,'house',{roof:'#6b4a2a'});
+  B(8,26,4,3,'house',{roof:'#2a4a5a'});
+  B(16,30,4,3,'house',{roof:'#5a2a3a'});
+  // graffiti dead-end wall art at boss alley end (visual handled in draw)
+  machines.push({x:15.5*TILE,y:14.4*TILE},{x:36.5*TILE,y:14.4*TILE},{x:29.5*TILE,y:21.4*TILE},{x:48.5*TILE,y:28.4*TILE});
+  signs.push({x:24*TILE,y:14*TILE,text:'SAKURA ST.',jp:'さくら'},
+             {x:30*TILE,y:20*TILE,text:'KOBAN PLAZA',jp:'交番'},
+             {x:49*TILE,y:25*TILE,text:'URA ALLEY',jp:'裏通り'});
+  for(let x=4;x<TW-2;x+=8) poles.push({x:x*TILE,y:15.2*TILE});
+  for(let x=6;x<TW-2;x+=8) poles.push({x:x*TILE,y:19.2*TILE});
+  for(let x=7;x<TW-1;x+=7) lamps.push({x:x*TILE,y:14.5*TILE});
+  for(let x=10;x<TW-1;x+=9) lamps.push({x:x*TILE,y:19.6*TILE});
+  lamps.push({x:24.5*TILE,y:22.5*TILE},{x:31.5*TILE,y:25.5*TILE}); // koban plaza lamps
+}
+// interiors: sleazy pub + neon net cafe
+const interiors = {
+  pub:  { w:22, h:14, solids:[] },
+  cafe: { w:20, h:12, solids:[] },
 };
-// gloopy = pitch glides between notes; splunky = wet pluck with pitch drop
-function playGlide(from, to, dur=0.12, type='square', vol=0.045, when=0) {
-  if (!audioCtx || !musicOn) return;
-  const t = audioCtx.currentTime + when;
-  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(from, t);
-  o.frequency.linearRampToValueAtTime(Math.max(20,to), t + dur);
-  g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  o.connect(g); g.connect(audioCtx.destination);
-  o.start(t); o.stop(t + dur + 0.02);
-}
-function playPlunk(freq, dur=0.09, vol=0.05, when=0) {
-  if (!audioCtx || !musicOn) return;
-  const t = audioCtx.currentTime + when;
-  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-  o.type = 'sine';
-  o.frequency.setValueAtTime(freq*3, t);
-  o.frequency.exponentialRampToValueAtTime(Math.max(30,freq), t + dur);
-  g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  o.connect(g); g.connect(audioCtx.destination);
-  o.start(t); o.stop(t + dur + 0.02);
-}
-// 32-step loop, heavy swing: stabs, doubles, octave pops, chromatic gloop run
-const boneLead = [
-  'A4',0,'A4','A4', 'C5',0,'A4',0, 'D5','D5',0,'C5', 'B4',0,'A4',0,
-  'A4',0,'A4','A4', 'C5',0,'D5','E5', 'D5','C5','B4','G#4', 'A4',0,'A5~',0,
-];
-const boneBass = [
-  'A2',0,'A3','A2', 0,'G2','G3','G2', 'F2',0,'F3','F2', 0,'E2','E3','E2',
-  'A2',0,'A3','A2', 0,'G2','G3','G2', 'E2','E2','G#2','A2', 'A2~','A2',0,0,
-];
-function musicLoop() {
-  if (musicOn && audioCtx && gameStarted && !paused) {
-    const i = step % 32;
-    const swing = (i % 2 === 1) ? 0.025 : 0; // shuffled skeleton swing
-    const l = boneLead[i], b = boneBass[i];
-    // bone-xylo lead: square stab + octave shimmer; '~' steps gloop-glide
-    if (l) {
-      if (String(l).endsWith('~')) { const n=String(l).slice(0,-1); playGlide(noteFreq(n)/2, noteFreq(n), 0.16, 'square', 0.042, swing); }
-      else { playNote(noteFreq(l), 0.12, 'square', 0.042, swing); playNote(noteFreq(l)*2, 0.07, 'triangle', 0.02, swing); }
-    }
-    // tuba bass: fat triangle; '~' steps slide up gloopy-style
-    if (b) {
-      if (String(b).endsWith('~')) { const n=String(b).slice(0,-1); playGlide(noteFreq(n), noteFreq(n)*2, 0.26, 'triangle', 0.10, 0); }
-      else playNote(noteFreq(b), 0.19, 'triangle', 0.10, 0);
-    }
-    // chiller skeleton kit: soft kick, rim backbeat, brushed hats
-    if (i % 8 === 0 || i % 8 === 5) playNote(110, 0.08, 'sine', 0.085);
-    if (i % 8 === 4) playNote(175, 0.06, 'square', 0.04);
-    if (i % 2 === 1) playNote(6500, 0.025, 'square', 0.008);
-    // splunky water-drop pluck every 2 bars
-    if (i === 30) playPlunk(noteFreq('E5'), 0.12, 0.035);
-    if (i === 14) playPlunk(noteFreq('C5'), 0.10, 0.028);
-    // halloween undertone: tolling bell each bar + ghost choir every 2 loops
-    if (i % 16 === 0) { playNote(noteFreq('A5'), 0.6, 'triangle', 0.022); playNote(noteFreq('E5'), 0.6, 'sine', 0.02); }
-    if (i % 16 === 8) playNote(noteFreq('G5'), 0.5, 'triangle', 0.016);
-    if (step % 64 === 0) playGlide(noteFreq('E6'), noteFreq('A5'), 1.3, 'sine', 0.022);
-    if (step % 64 === 32) playGlide(noteFreq('C6'), noteFreq('G5'), 1.1, 'sine', 0.018);
-  }
-  step++;
-}
-function startMusic() { initAudio(); if (musicTimer) clearInterval(musicTimer); musicTimer = setInterval(musicLoop, 148); }
-
-// ---- MAZE GEN ----
-function genMaze() {
-  maze = Array.from({length: ROWS}, () => Array(COLS).fill(0));
-  function carve(x, y) {
-    maze[y][x] = 1;
-    const dirs = [[2,0],[-2,0],[0,2],[0,-2]].sort(()=>Math.random()-0.5);
-    for (const [dx,dy] of dirs) {
-      const nx = x+dx, ny = y+dy;
-      if (nx>0 && ny>0 && nx<COLS-1 && ny<ROWS-1 && maze[ny][nx]===0) {
-        maze[y+dy/2][x+dx/2]=1;
-        carve(nx,ny);
-      }
-    }
-  }
-  carve(1,1);
-  // braid: knock ~60 extra walls to add loops (casual-friendly but still big)
-  let knocked=0, tries=0;
-  while (knocked<60 && tries<2000) {
-    tries++;
-    const x = 1+Math.floor(Math.random()*(COLS-2));
-    const y = 1+Math.floor(Math.random()*(ROWS-2));
-    if (maze[y][x]===0) {
-      // only knock if it connects two floors
-      const h = (maze[y][x-1]===1 && maze[y][x+1]===1);
-      const v = (maze[y-1] && maze[y+1] && maze[y-1][x]===1 && maze[y+1][x]===1);
-      if (h||v) { maze[y][x]=1; knocked++; }
-    }
-  }
-  maze[1][1]=1;
-  maze[ROWS-2][COLS-2]=1;
-  maze[ROWS-2][COLS-3]=1;
-  placeOrbs();
-  placeCats();
-}
-function openCells() {
-  const cells=[];
-  for (let y=1;y<ROWS-1;y++) for (let x=1;x<COLS-1;x++) if(maze[y][x]===1) cells.push({x,y});
-  return cells;
-}
-function bfsDist() {
-  const d = Array.from({length:ROWS},()=>Array(COLS).fill(-1));
-  const q=[[1,1]]; d[1][1]=0;
-  while(q.length){ const [x,y]=q.shift();
-    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
-      const nx=x+dx,ny=y+dy;
-      if(nx>=0&&ny>=0&&nx<COLS&&ny<ROWS&&maze[ny][nx]===1&&d[ny][nx]===-1){d[ny][nx]=d[y][x]+1;q.push([nx,ny]);}
-    }
-  }
-  return d;
-}
-// trial registry: every puzzle type owns a distinct stone look
-const TRIALS = {
-  zip:      { name:'ZIP',     color:'#35e0e6', glow:'rgba(53,224,230,.35)'  },
-  typing:   { name:'TYPE',    color:'#fff3c4', glow:'rgba(255,243,196,.35)' },
-  simon:    { name:'FOX',     color:'#c9a7ff', glow:'rgba(160,110,255,.4)'  },
-  riddle:   { name:'RIDDLE',  color:'#ffd93d', glow:'rgba(255,217,61,.4)'   },
-  scramble: { name:'RUNE',    color:'#ff9a3d', glow:'rgba(255,154,61,.4)'   },
-  catch:    { name:'CATCH',   color:'#7bff9e', glow:'rgba(80,255,150,.35)'  },
-};
-const TRIAL_KEYS = Object.keys(TRIALS);
-// shortest walk from START to GATE — stones sit ON it so they're in the way
-function bfsPath(){
-  const prev=Array.from({length:ROWS},()=>Array(COLS).fill(null));
-  const seen=Array.from({length:ROWS},()=>Array(COLS).fill(false));
-  const q=[[1,1]]; seen[1][1]=true;
-  const ex=COLS-2, ey=ROWS-2;
-  while(q.length){
-    const [x,y]=q.shift();
-    if(x===ex&&y===ey) break;
-    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
-      const nx=x+dx, ny=y+dy;
-      if(nx<0||ny<0||nx>=COLS||ny>=ROWS||seen[ny][nx]||maze[ny][nx]!==1) continue;
-      seen[ny][nx]=true; prev[ny][nx]=[x,y]; q.push([nx,ny]);
-    }
-  }
-  if(!seen[ey][ex]) return [];
-  const path=[]; let cur=[ex,ey];
-  while(cur){ path.push({x:cur[0],y:cur[1]}); const [cx,cy]=cur; cur=prev[cy][cx]; }
-  return path.reverse(); // start -> gate
-}
-function placeOrbs() {
-  const path=bfsPath();
-  // walkable middle of the route only (never on START / GATE tiles)
-  const usable=path.filter((c,i)=>i>4 && i<path.length-4 && !(c.x===1&&c.y===1));
-  orbs=[];
-  const N=10;
-  // every puzzle type guaranteed at least one stone, shuffled along the route
-  const deck=[...TRIAL_KEYS].sort(()=>Math.random()-0.5);
-  while(deck.length<N) deck.push(TRIAL_KEYS[Math.floor(Math.random()*TRIAL_KEYS.length)]);
-  deck.sort(()=>Math.random()-0.5);
-  const picks=[];
-  if(usable.length>=N){
-    for(let i=0;i<N;i++){
-      const idx=Math.min(usable.length-1, Math.floor((i+0.5)/N*usable.length));
-      picks.push(usable[idx]);
-    }
-  } else {
-    // fallback (shouldn't happen on 31x31): any open cells
-    const cells=openCells().filter(c=>!(c.x===1&&c.y===1)&&!(c.x===COLS-2&&c.y===ROWS-2));
-    cells.sort(()=>Math.random()-0.5);
-    for(let i=0;i<N&&i<cells.length;i++) picks.push(cells[i]);
-  }
-  picks.forEach((c,i)=>{
-    if(!c||orbs.some(o=>o.tx===c.x&&o.ty===c.y)) return;
-    orbs.push({tx:c.x, ty:c.y, x:c.x*TILE+TILE/2, y:c.y*TILE+TILE/2, done:false, bob:Math.random()*6, type:deck[i%deck.length]});
-  });
-}
-function placeCats() {
-  cats=[];
-  const cells=openCells().filter(c=>!(c.x===1&&c.y===1));
-  for(let i=0;i<4;i++){
-    const c=cells[Math.floor(Math.random()*cells.length)];
-    cats.push({x:c.x*TILE+TILE/2, y:c.y*TILE+TILE/2, dir:Math.floor(Math.random()*4), t:0, color:['#ffffff','#ffbe5c','#8d8d8d','#ffb3d9'][i%4], meow:0});
-  }
+function buildInteriors(){
+  const P=(x,y,w,h)=>interiors.pub.solids.push({x:x*TILE,y:y*TILE,w:w*TILE,h:h*TILE});
+  P(0,0,22,1); P(0,13,22,1); P(0,0,1,14); P(21,0,1,14); // walls
+  P(2,0,18,2);                        // counter row
+  P(4,6,3,2); P(10,6,3,2); P(15,6,3,2); // tables
+  P(2,10,2,2); P(8,10,2,2); P(14,10,2,2); P(18,10,2,2); // stools, crates, jukebox
+  P(0,4,1,2); P(21,9,1,2);              // barrels + dartboard nook
+  const C=(x,y,w,h)=>interiors.cafe.solids.push({x:x*TILE,y:y*TILE,w:w*TILE,h:h*TILE});
+  C(0,0,20,1); C(0,11,20,1); C(0,0,1,12); C(19,0,1,12); // walls
+  C(14,0,6,1);                          // clerk counter
+  C(3,4,14,1); C(3,7,14,1);             // PC desk rows
+  C(1,9,2,1);                           // snack shelf
 }
 
-// ---- PLAYER ----
-const player = { x: 1*TILE+TILE/2, y: 1*TILE+TILE/2, r: 13, speed: 165, vx:0, vy:0, dir:'down', moving:false, anim:0, stepSnd:0 };
+// ---------- ENTITIES ----------
+const player = { x: 27*TILE, y: 21*TILE, r: 12, speed: 168, dir:'down', moving:false, anim:0, stepSnd:0, immuneUntil:0 };
 const keys = {};
-function isTypingTarget(el){
-  return el && (el.tagName==='TEXTAREA' || el.tagName==='INPUT' || el.isContentEditable);
-}
+function isTypingTarget(el){ return el && (el.tagName==='TEXTAREA'||el.tagName==='INPUT'||el.isContentEditable); }
 window.addEventListener('keydown', e => {
-  // FIX: never hijack keys while typing in a challenge input (this was eating SPACE)
   if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
-  const k=e.key.toLowerCase();
-  keys[k]=true;
-  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
+  keys[e.key.toLowerCase()] = true;
+  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) e.preventDefault();
 });
-window.addEventListener('keyup', e => {
-  if (isTypingTarget(e.target)) return;
-  keys[e.key.toLowerCase()]=false;
-});
+window.addEventListener('keyup', e => { if (isTypingTarget(e.target)) return; keys[e.key.toLowerCase()] = false; });
 
-function isWallAt(px,py){
-  const tx=Math.floor(px/TILE), ty=Math.floor(py/TILE);
-  if(tx<0||ty<0||tx>=COLS||ty>=ROWS) return true;
-  return maze[ty][tx]===0;
+const strayLines = [
+  'Nya. Nya nya nya. ...That is all. That is the whole update.',
+  'Meow! (Translation: the vending machine on Sakura St. is watching me.)',
+  'Nyaaa... I pay zero rent and I have never been happier.',
+  'Pspsps? No. I approach YOU. Rules are rules.',
+  'Meow meow! I buried the mayor\'s sandal. No further questions.',
+  'Nya. The raccoon gang owes me 3 fish. Tell them Nya sent you.',
+  'Mrrp! I saw a ghost and I simply chose not to perceive it.',
+  'Meow!! This alley is MY alley. ...Okay, our alley. You can stay.',
+];
+let strays = [], raccoons = [], cops = [], guards = [], patrons = [];
+let veteran = null, dogs = [], boss = null, clerk = null, hollow = null;
+function px(tx,ty){ return {x:tx*TILE+TILE/2, y:ty*TILE+TILE/2}; }
+function spawnNPCs(){
+  const S=(tx,ty)=>{ const p=px(tx,ty); return {x:p.x,y:p.y,dir:Math.floor(Math.random()*4),t:Math.random(),nextOk:0,ph:Math.random()*6}; };
+  strays = [
+    Object.assign(S(20,17),{color:'#ffffff',name:'Pudding'}),
+    Object.assign(S(33,17),{color:'#ffbe5c',name:'Miso'}),
+    Object.assign(S(6,31),{color:'#8d8d8d',name:'Gutter'}),
+    Object.assign(S(48,26.5),{color:'#ffb3d9',name:'Hime'}),
+    Object.assign(S(12,17),{color:'#3a3a3a',name:'Soot'}),
+    Object.assign(S(27,24),{color:'#e8d8b8',name:'Biscuit'}),
+    Object.assign(S(45,17),{color:'#7ab8ff',name:'Sardine'}),
+    Object.assign(S(18,32),{color:'#c9a7ff',name:'Plum'}),
+  ];
+  raccoons = [
+    Object.assign(S(5,33),{hiddenUntil:0}),
+    Object.assign(S(8,31),{hiddenUntil:0}),
+    Object.assign(S(17,8.5),{hiddenUntil:0}),
+    Object.assign(S(47,26.5),{hiddenUntil:0}),
+    Object.assign(S(36,17),{hiddenUntil:0}),
+    Object.assign(S(24,17.5),{hiddenUntil:0}),
+  ];
+  cops = [
+    Object.assign(S(10,17),{name:'Nolan',color:'#2a3a6b',mode:'patrol',wx:10,wy:17,speed:132}),
+    Object.assign(S(46,17),{name:'Chen',color:'#2a3a6b',mode:'patrol',wx:46,wy:17,speed:132}),
+    Object.assign(S(27,33),{name:'Bradford',color:'#232f57',mode:'patrol',wx:27,wy:33,speed:138}),
+  ];
+  dogs = [Object.assign(S(40,12.4),{color:'#c98f4e',name:'Pochi'}),Object.assign(S(43,12.4),{color:'#8a6a3e',name:'Hachi'})];
+  veteran = Object.assign({x:11*TILE,y:3.4*TILE},{color:'#d8c8a8',name:'Veteran'});
+  patrons = [
+    Object.assign({x:5*TILE,y:8.8*TILE},{color:'#b8b8d8',name:'Darts Dave',line:'"180! ...Okay, 26. The darts are haunted. Definitely haunted."'}),
+    Object.assign({x:11*TILE,y:8.8*TILE},{color:'#8a6a9a',name:'Sleepy Mimi',line:'"Zzz... one more milk... make it... double... zzz..."'}),
+    Object.assign({x:16*TILE,y:8.8*TILE},{color:'#d89a5a',name:'Jukebox Jo',line:'"I paid 100 yen for ONE song and the machine ate it. This is my villain origin story."'}),
+    Object.assign({x:6*TILE,y:1.2*TILE},{color:'#e8b8a0',name:'Bartender Tama',line:'"Welcome to NEKO PUB! Wipe your feet. ...On what? Dunno. The air. It\'s sticky."'}),
+  ];
+  clerk = Object.assign({x:17*TILE,y:0.5*TILE},{color:'#7ab8ff',name:'Clerk Kon'});
+  hollow = Object.assign({x:4.5*TILE,y:36*TILE},{name:'Hollow'});
+  guards = []; boss = null; bossSpawned = false;
 }
-function collide(nx,ny){
-  const r=player.r;
-  // check 4 corners
-  const pts=[[nx-r,ny-r],[nx+r,ny-r],[nx-r,ny+r],[nx+r,ny+r],[nx,ny]];
-  for(const [px,py] of pts) if(isWallAt(px,py)) return true;
+function spawnBoss(){
+  bossSpawned = true;
+  const p = px(50.5,35);
+  boss = {x:p.x,y:p.y,dir:0,t:0};
+  guards = [0,1,2,3].map(i=>{ const q=px(49.4+i*0.75,33.6); return {x:q.x,y:q.y,dir:i,ph:i*1.7,color:'#15151f'}; });
+  setMusicMode('field');
+  sfx('quest');
+  questBanner('⚔️ QUEST: <b>Evil nyanner challenges you to a fight.</b><br>Find the dead-end of the EAST back alley (URA ALLEY)! 東の裏通り!');
+  log('Boss spawned in the east back alley! 東!');
+  refreshHUD();
+}
+
+// ---------- COLLISION ----------
+const PONDS=[{tx:24,ty:31,tw:6,th:4}]; // definitely-not-fishing pond (SE meadow)
+const POND_SIGN={x:22.4*TILE,y:30.2*TILE};
+function pondRectPx(p){ return {x:p.tx*TILE+8,y:p.ty*TILE+10,w:p.tw*TILE-16,h:p.th*TILE-16}; }
+function solidsFor(){
+  if (inMap) return interiors[inMap].solids;
+  const s = [{x:-TILE,y:-TILE,w:(TW+2)*TILE,h:TILE},{x:-TILE,y:TH*TILE,w:(TW+2)*TILE,h:TILE},
+             {x:-TILE,y:0,w:TILE,h:TH*TILE},{x:TW*TILE,y:0,w:TILE,h:TH*TILE}];
+  for (const b of buildings) s.push(b);
+  for (const p of poles) s.push({x:p.x-5,y:p.y-14,w:10,h:20});
+  for (const m of machines) s.push({x:m.x-11,y:m.y-20,w:22,h:30});
+  for (const l of lamps) s.push({x:l.x-4,y:l.y-40,w:8,h:44});
+  for (const p of PONDS) s.push(pondRectPx(p)); // no swimming. rules are rules.
+  return s;
+}
+function hitSolid(nx,ny){
+  const r = player.r;
+  for (const s of solidsFor()){
+    const cx = Math.max(s.x,Math.min(nx,s.x+s.w)), cy = Math.max(s.y,Math.min(ny,s.y+s.h));
+    if ((nx-cx)*(nx-cx)+(ny-cy)*(ny-cy) < r*r) return true;
+  }
   return false;
 }
-function update(dt){
-  if(!gameStarted||paused||gameWon) return;
-  let dx=0,dy=0;
-  if(keys['w']||keys['arrowup']) dy-=1;
-  if(keys['s']||keys['arrowdown']) dy+=1;
-  if(keys['a']||keys['arrowleft']) dx-=1;
-  if(keys['d']||keys['arrowright']) dx+=1;
-  if(dx!==0&&dy!==0){dx*=0.7071;dy*=0.7071;}
-  player.moving=(dx!==0||dy!==0);
-  if(dx<0) player.dir='left'; else if(dx>0) player.dir='right'; else if(dy<0) player.dir='up'; else if(dy>0) player.dir='down';
-  if(player.moving){
-    player.anim+=dt*9;
-    player.stepSnd+=dt;
-    if(player.stepSnd>0.28){player.stepSnd=0; sfx('step');}
-  } else player.anim=0;
-  const nx=player.x+dx*player.speed*dt;
-  if(!collide(nx,player.y)) player.x=nx;
-  const ny=player.y+dy*player.speed*dt;
-  if(!collide(player.x,ny)) player.y=ny;
 
-  // camera
-  const vw=canvas.width, vh=canvas.height;
-  cam.x=Math.max(0,Math.min(COLS*TILE-vw, player.x-vw/2));
-  cam.y=Math.max(0,Math.min(ROWS*TILE-vh, player.y-vh/2));
-
-  // trial stones sit mid-corridor and grab hard — generous radius, no tiptoeing past
-  for(const o of orbs){
-    o.bob+=dt*3;
-    if(!o.done && Math.hypot(player.x-o.x,player.y-o.y)<36){
-      triggerChallenge(o);
-      break;
-    }
-  }
-  // cats wander
-  for(const c of cats){
-    c.t+=dt;
-    if(c.t>1.2+Math.random()*0.2){c.t=0;c.dir=Math.floor(Math.random()*4);}
-    const sp=40*dt;
-    let nx=c.x,ny=c.y;
-    if(c.dir===0)ny-=sp; if(c.dir===1)ny+=sp; if(c.dir===2)nx-=sp; if(c.dir===3)nx+=sp;
-    const tx=Math.floor(nx/TILE),ty=Math.floor(ny/TILE);
-    if(tx>=0&&ty>=0&&tx<COLS&&ty<ROWS&&maze[ty][tx]===1){c.x=nx;c.y=ny;}
-    else c.dir=Math.floor(Math.random()*4);
-    if(Math.hypot(player.x-c.x,player.y-c.y)<26 && c.meow<=0){ c.meow=2; sfx('meow'); log('A field cat stares at you. Classic. (happiness +10)'); spawnHearts(c.x,c.y,4); }
-    if(c.meow>0)c.meow-=dt;
-  }
-  // particles
-  particles=particles.filter(p=>{p.life-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; return p.life>0;});
-
-  // exit check: meadow gate at COLS-2, ROWS-2
-  const ex=(COLS-2)*TILE+TILE/2, ey=(ROWS-2)*TILE+TILE/2;
-  if(Math.hypot(player.x-ex,player.y-ey)<26){ win(); }
-
-  elapsed=(Date.now()-startTime)/1000;
-  document.getElementById('hud-time').textContent=fmtTime(elapsed);
-  drawMinimap();
-}
-
-// ---- PIXEL TILE RENDERING: open-world Whispering Fields (Stardew-like) ----
+// ---------- PIXEL SPRITES ----------
 function hash2(x,y){ let h=(x*73856093 ^ y*19349663)>>>0; h=(h*1664525+1013904223)>>>0; return h/4294967295; }
-function drawFloorTile(g, sx, sy, vx, vy){
-  // open meadow: large soft biome patches, not checkerboard
-  const region = Math.floor(vx/4) + Math.floor(vy/4)*7;
-  const r1 = hash2(vx,vy), r2 = hash2(vx*3+11,vy*5+7), r3 = hash2(vx*7+3,vy*2+13);
-  let base = '#8fd45e';
-  if (r2 > 0.72) base = '#7ec850';       // lush hollow
-  else if (r2 < 0.18) base = '#a5dd6f';  // sunlit meadow
-  if ((vx+vy*2)%11===0 && r3>0.4) base = '#c9b86a'; // dry dirt patch
-  if ((vx*2-vy)%23===0 && r1>0.6) base = '#6fb84f'; // deep grass
-  g.fillStyle = base; g.fillRect(sx,sy,TILE,TILE);
-  // subtle 4px texture
-  let h=(vx*73856093 ^ vy*19349663)>>>0;
-  const rnd=()=>{h=(h*1664525+1013904223)>>>0;return h/4294967295;};
-  for(let i=0;i<7;i++){
-    const px=sx+Math.floor(rnd()*11)*4, py=sy+Math.floor(rnd()*11)*4;
-    g.fillStyle = rnd()>0.5 ? 'rgba(0,80,20,.14)' : 'rgba(255,255,220,.16)';
-    g.fillRect(px,py,4,4);
-  }
-  // dirt speckles on path-like tiles (every few tiles)
-  if ((vx+vy)%4===0){
-    g.fillStyle='#b8935e';
-    g.fillRect(sx+10,sy+30,8,4); g.fillRect(sx+28,sy+12,8,4);
-    g.fillStyle='#8a6a3e';
-    g.fillRect(sx+10,sy+32,8,2); g.fillRect(sx+28,sy+14,8,2);
-  }
-  // grass tufts
-  for(let i=0;i<3;i++){
-    if(rnd()>0.45){
-      const gx=sx+4+Math.floor(rnd()*9)*4, gy=sy+6+Math.floor(rnd()*9)*4;
-      g.fillStyle='#3e8e3a';
-      g.fillRect(gx,gy,4,8); g.fillRect(gx+4,gy+4,4,4);
-      g.fillStyle='#5cbf4e'; g.fillRect(gx,gy,4,4);
-    }
-  }
-  // flowers / clover / stones / mushrooms — scattered farm-field feel
-  if(r1>0.86){
-    const fx=sx+8+Math.floor(r2*24), fy=sy+8+Math.floor(r3*24);
-    const cols=['#ffffff','#ffd93d','#ff6fae','#ff8c42'];
-    g.fillStyle=cols[Math.floor(r2*4)%4]; g.fillRect(fx,fy,6,6);
-    g.fillStyle='#e63956'; g.fillRect(fx+2,fy+2,2,2);
-    g.fillStyle='#3e8e3a'; g.fillRect(fx+1,fy+6,4,3);
-  } else if(r1<0.08){
-    const px2=sx+12+Math.floor(r2*20), py2=sy+12+Math.floor(r3*20);
-    g.fillStyle='#9a9a9a'; g.fillRect(px2,py2,8,6);
-    g.fillStyle='#c9c9c9'; g.fillRect(px2,py2,8,2);
-  } else if(r1>0.80 && r1<=0.86){
-    const mx=sx+16+Math.floor(r2*12), my=sy+16+Math.floor(r3*12);
-    g.fillStyle='#e8e0d0'; g.fillRect(mx,my,6,6);
-    g.fillStyle='#c1123b'; g.fillRect(mx,my-4,6,5);
-    g.fillStyle='#fff'; g.fillRect(mx+1,my-3,2,2);
-  }
-  // tiny pond puddle cluster (walkable, just visual)
-  if(hash2(Math.floor(vx/2),Math.floor(vy/2))>0.93 && r3>0.5){
-    g.fillStyle='#6fb8d8'; g.fillRect(sx+8,sy+10,32,24);
-    g.fillStyle='#a8dcf0'; g.fillRect(sx+10,sy+12,12,4);
-    g.fillStyle='#4a8ab0'; g.fillRect(sx+8,sy+30,32,4);
-  }
-  // halloween: purple ground-mist drifting over some tiles
-  if(hash2(vx+40,vy+77)>0.90){
-    g.fillStyle='rgba(120,70,180,.22)'; g.fillRect(sx+2,sy+26,44,14);
-    g.fillStyle='rgba(160,110,255,.20)'; g.fillRect(sx+8,sy+30,28,6);
-  }
-  // halloween: dead gray-purple blades among the grass
-  if(r3<0.12){
-    g.fillStyle='#5a4a6b'; g.fillRect(sx+6,sy+34,4,8); g.fillRect(sx+34,sy+10,4,8);
-    g.fillStyle='#7a6a8b'; g.fillRect(sx+6,sy+34,4,3); g.fillRect(sx+34,sy+10,4,3);
-  }
-  // halloween: jack-o'-lantern grinning from the corner (flickers)
-  if(hash2(vx*5+1,vy*5+3)>0.94){
-    const px0=sx+26, py0=sy+24, fl=0.6+0.4*Math.abs(Math.sin(Date.now()/400+vx*2+vy));
-    g.fillStyle=`rgba(255,150,40,${0.14*fl})`; g.fillRect(px0-6,py0-6,28,24);
-    g.fillStyle='#c96a1e'; g.fillRect(px0,py0,16,13);
-    g.fillStyle='#e8932e'; g.fillRect(px0+2,py0+2,5,9); g.fillRect(px0+9,py0+2,5,9);
-    g.fillStyle='#5a3a1a'; g.fillRect(px0+7,py0-3,3,4); // stem
-    g.fillStyle=`rgba(255,230,120,${0.5+0.5*fl})`;
-    g.fillRect(px0+3,py0+4,4,4); g.fillRect(px0+10,py0+4,4,4); // eyes
-    g.fillRect(px0+3,py0+10,11,2); g.fillRect(px0+6,py0+12,5,2); // jagged grin
-  }
-}
-function drawWallTile(g,sx,sy,vx,vy){
-  // haunted autumn thicket forming the maze — dark woods, halloween lights
-  let h=(vx*83492791 ^ vy*2971215073)>>>0;
-  const rnd=()=>{h=(h*1664525+1013904223)>>>0;return h/4294967295;};
-  // soil base, a shade darker for spookiness
-  g.fillStyle='#38281c'; g.fillRect(sx,sy,TILE,TILE);
-  g.fillStyle='#4c3a26'; g.fillRect(sx+4,sy+4,TILE-8,TILE-8);
-  const pine = hash2(vx,vy) > 0.62;
-  const autumn = hash2(vx*3+5,vy*3+9) > 0.55; // some canopies turn pumpkin-orange
-  function roundTree(cx,cy,s){
-    g.fillStyle='#101f18'; g.fillRect(cx-s,cy-s,s*2,s*2);
-    g.fillStyle=autumn?'#6b3a1e':'#1e4028'; g.fillRect(cx-s+2,cy-s+2,s*2-4,s*2-4);
-    g.fillStyle=autumn?'#e8932e':'#4a7a5a'; g.fillRect(cx-s+3,cy-s+3,5,5);
-    if(autumn){ g.fillStyle='#c96a1e'; g.fillRect(cx+s-8,cy+2,4,4); }
-    g.fillStyle='#2c2013'; g.fillRect(cx-2,cy+s-2,4,8);
-  }
-  function pineTree(cx,cy){
-    g.fillStyle='#2c2013'; g.fillRect(cx-2,cy+8,4,8);
-    g.fillStyle='#101f18';
-    g.fillRect(cx-10,cy+2,20,8); g.fillRect(cx-7,cy-6,14,8); g.fillRect(cx-4,cy-14,8,8);
-    g.fillStyle=autumn?'#4a3a20':'#1e4028';
-    g.fillRect(cx-8,cy+2,16,4); g.fillRect(cx-5,cy-6,10,4);
-    g.fillStyle=autumn?'#e8932e':'#5a8a6a'; g.fillRect(cx-4,cy-4,3,3);
-  }
-  if(pine){ pineTree(sx+12,sy+20); pineTree(sx+34,sy+24); }
-  else { roundTree(sx+12,sy+20,11); roundTree(sx+35,sy+22,10); roundTree(sx+24,sy+12,8); }
-  // halloween: something's eyes glow back from the bushes on some tiles
-  if(hash2(vx*9+4,vy*9+4)>0.88){
-    const ex=sx+14+Math.floor(hash2(vx,vy*2)*16), ey=sy+16+Math.floor(hash2(vx*2,vy)*10);
-    const gl=0.5+0.5*Math.abs(Math.sin(Date.now()/500+vx+vy));
-    g.fillStyle=`rgba(255,220,90,${0.55+0.45*gl})`;
-    g.fillRect(ex,ey,4,5); g.fillRect(ex+8,ey,4,5);
-    g.fillStyle='#1a0f00'; g.fillRect(ex+1,ey+1,2,2); g.fillRect(ex+9,ey+1,2,2);
-  }
-  // will-o'-wisps: orange / violet / sickly green sparks
-  for(let i=0;i<3;i++){
-    if(rnd()>0.6){ const c=rnd(); g.fillStyle = c>0.66 ? '#ff9a3d' : (c>0.33 ? '#c9a7ff' : '#9dff6e'); g.fillRect(sx+4+Math.floor(rnd()*10)*4, sy+4+Math.floor(rnd()*10)*4, 3,3); }
-  }
-  // grass fringe where woods meet a path — sells the open-world edge
-  try{
-    if(maze[vy-1] && maze[vy-1][vx]===1){
-      g.fillStyle='#8fd45e'; g.fillRect(sx,sy,TILE,6); g.fillStyle='#3e8e3a'; for(let x=0;x<6;x++){ if(rnd()>0.4) g.fillRect(sx+x*8,sy+6,4,5); }
-      // halloween: spider web strung across some path-facing edges
-      if(hash2(vx*7+2,vy*7+8)>0.78){
-        g.fillStyle='rgba(230,230,240,.75)';
-        g.fillRect(sx+2,sy,2,14); g.fillRect(sx+2,sy+6,14,2); g.fillRect(sx+8,sy,2,10);
-        g.fillRect(sx+2,sy+12,10,1);
-        g.fillStyle='#2b1b4d'; g.fillRect(sx+9,sy+8,4,4); // the spider. hi.
-      }
-    }
-    if(maze[vy+1] && maze[vy+1][vx]===1){ g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(sx,sy+TILE-6,TILE,6); }
-    if(maze[vy] && maze[vy][vx-1]===1){ g.fillStyle='#8fd45e'; g.fillRect(sx,sy,5,TILE); }
-    if(maze[vy] && maze[vy][vx+1]===1){ g.fillStyle='rgba(0,0,0,.25)'; g.fillRect(sx+TILE-5,sy,5,TILE); }
-  }catch(_){}
-}
-
-// spooky vampire witch — 16x16 style pixel drawing, scaled
-function drawWitch(g, px, py, dir, anim, moving){
-  const s=3; // pixel size -> 16*3=48
+function drawWitch(g, pxp, pyp, dir, anim, moving){
+  const s=3;
   const bob = moving ? Math.floor(Math.sin(anim)*1) : 0;
   const hop = moving ? Math.abs(Math.sin(anim))*2 : Math.sin(Date.now()/500)*1.2;
-  const ox=Math.floor(px-8*s), oy=Math.floor(py-8*s+bob+hop*0.4);
+  const ox=Math.floor(pxp-8*s), oy=Math.floor(pyp-8*s+bob+hop*0.4);
   const P=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+x*s,oy+y*s,w*s,h*s);};
-  // shadow
-  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(px-14,py+20,28,6);
-  // back hair (long dark)
-  P(3,6,10,8,'#1d1030');
-  P(2,8,2,6,'#1d1030'); P(12,8,2,6,'#1d1030');
-  // purple streak
-  P(4,8,1,6,'#9b5cff');
-  // legs (animate)
+  g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(pxp-14,pyp+20,28,6);
+  P(3,6,10,8,'#1d1030'); P(2,8,2,6,'#1d1030'); P(12,8,2,6,'#1d1030'); P(4,8,1,6,'#9b5cff');
   const legOff = moving ? Math.floor(Math.sin(anim)*1.4) : 0;
   P(6,14,2,2,'#f3d6e2'); P(8,14,2,2,'#f3d6e2');
   P(6+legOff*0.4,15,2,1,'#2b1b4d'); P(8-legOff*0.4,15,2,1,'#2b1b4d');
-  // dress (black goth + red cape)
-  P(4,11,8,4,'#241433');           // dress
-  P(2,11,2,4,'#c1123b'); P(12,11,2,4,'#c1123b'); // cape sides
-  P(5,12,2,2,'#7b2ff7'); P(9,12,1,1,'#ffd93d'); // brooch
-  // arms
+  P(4,11,8,4,'#241433'); P(2,11,2,4,'#c1123b'); P(12,11,2,4,'#c1123b');
+  P(5,12,2,2,'#7b2ff7'); P(9,12,1,1,'#ffd93d');
   P(3,11,1,3,'#f7c9d9'); P(12,11,1,3,'#f7c9d9');
-  // head
-  P(5,6,6,5,'#ffe3ec'); // face pale
-  // hair fringe
-  P(4,5,8,2,'#1d1030');
-  P(5,7,1,1,'#1d1030'); P(10,7,1,1,'#1d1030');
-  // eyes red spooky
+  P(5,6,6,5,'#ffe3ec'); P(4,5,8,2,'#1d1030'); P(5,7,1,1,'#1d1030'); P(10,7,1,1,'#1d1030');
   if(dir==='up'){ P(5,8,2,1,'#2b1b4d'); P(9,8,2,1,'#2b1b4d'); }
   else { P(5,8,2,2,'#ff0f3b'); P(9,8,2,2,'#ff0f3b'); P(5,8,1,1,'#fff'); P(9,8,1,1,'#fff'); P(6,9,1,1,'#5c0000'); P(10,9,1,1,'#5c0000'); }
-  // fangs
   if(dir!=='up'){ P(7,10,1,1,'#fff'); P(8,10,1,1,'#fff'); }
-  // blush
   P(4,9,1,1,'#ff9ed2'); P(11,9,1,1,'#ff9ed2');
-  // witch hat (big)
-  P(3,1,10,2,'#241433');
-  P(4,0,8,1,'#241433');
-  P(7, -1,2,1,'#241433');
-  P(4,2,8,1,'#7b2ff7'); // band
-  P(7,2,2,1,'#ffd93d'); // buckle
-  P(5,1,1,1,'#9b5cff'); // shine
-  // side hair by dir
-  if(dir==='left'){ P(2,7,1,5,'#1d1030'); }
-  if(dir==='right'){ P(13,7,1,5,'#1d1030'); }
-  // bat wings when moving fast? tiny
+  P(7,0,2,1,'#241433'); P(5,1,6,2,'#241433'); P(4,3,8,1,'#7b2ff7');
+  P(7,3,2,1,'#ffd93d'); P(3,4,10,1,'#241433'); P(5,1,1,1,'#9b5cff');
+  if(dir==='left'){ P(2,7,1,5,'#1d1030'); } if(dir==='right'){ P(13,7,1,5,'#1d1030'); }
   if(moving){ P(1,10,1,2,'#5a2d8f'); P(14,10,1,2,'#5a2d8f'); }
+  // Mowzkitow's little lantern-light
+  g.fillStyle='rgba(255,200,120,.9)'; g.fillRect(pxp+12,pyp-2,5,7);
+  g.fillStyle='#5a3a1a'; g.fillRect(pxp+12,pyp-4,5,2);
 }
-function drawCat(g,x,y,color,frame){
-  const s=2; const ox=Math.floor(x-8*s), oy=Math.floor(y-8*s+Math.sin(Date.now()/300+x)*1.5);
+function drawCat(g,x,y,color,big){
+  const s=big?3:2, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s+Math.sin(Date.now()/300+x)*1.5);
   const P=(a,b,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+a*s,oy+b*s,w*s,h*s);};
-  g.fillStyle='rgba(0,0,0,.25)'; g.fillRect(x-10,y+12,20,4);
+  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-10,y+12,20,4);
   P(3,10,10,4,color); P(4,9,8,2,color);
-  P(3,7,2,3,color); P(11,7,2,3,color); // ears
+  P(3,7,2,3,color); P(11,7,2,3,color);
   P(4,7,1,1,'#ff9ed2'); P(12,7,1,1,'#ff9ed2');
-  P(5,10,2,2,'#1a0f2e'); P(9,10,2,2,'#1a0f2e'); // eyes
-  P(7,12,2,1,'#ff6fae'); // nose
-  const t=Math.floor(Date.now()/400)%2; // tail wag
-  P(t?13:2,11,2,1,color);
-  P(5,14,2,1,'#1a0f2e'); P(9,14,2,1,'#1a0f2e'); // feet (alternate)
-  if(frame){ P(5,14,2,1,color); }
+  P(5,10,2,2,'#1a0f2e'); P(9,10,2,2,'#1a0f2e');
+  P(7,12,2,1,'#ff6fae');
+  P(Math.floor(Date.now()/400)%2?13:2,11,2,1,color);
+  P(5,14,2,1,'#1a0f2e'); P(9,14,2,1,'#1a0f2e');
 }
-function drawOrb(g,o){
-  // each trial owns its stone: mossy base + colored rune face + glyph + tag
-  const meta=TRIALS[o.type]||TRIALS.riddle;
-  const y=o.y+Math.sin(o.bob)*4;
-  g.fillStyle='rgba(0,0,0,.3)';
-  g.fillRect(o.x-13,o.y+15,26,6);
-  const p=(Math.sin(Date.now()/350+o.bob)+1)/2;
-  g.globalAlpha=0.35+p*0.4; g.fillStyle=meta.color; g.fillRect(o.x-17,y-17,34,34); g.globalAlpha=1;
-  // stone body
-  g.fillStyle='#5d5d5d'; g.fillRect(o.x-12,y-9,24,24);
-  g.fillStyle='#8f8f8f'; g.fillRect(o.x-12,y-9,24,5);
-  g.fillStyle='#3e8e3a'; g.fillRect(o.x-12,y+10,24,5); // moss foot
-  g.fillStyle='#2b1b4d'; g.fillRect(o.x-9,y-5,18,16);
-  // colored rune face
-  g.fillStyle=meta.color; g.fillRect(o.x-7,y-3,14,12);
-  const cx=o.x, cy=y+3;
-  g.textAlign='center';
-  if(o.type==='zip'){
-    // mini path grid: white track with numbered ends
-    g.fillStyle='#2b1b4d'; g.fillRect(cx-5,cy-4,10,8);
-    g.fillStyle='#fff'; g.fillRect(cx-5,cy-1,10,2); g.fillRect(cx+1,cy-4,2,8);
-    g.fillStyle='#ff6fae'; g.fillRect(cx-5,cy-4,3,3);
-    g.fillStyle='#7bff9e'; g.fillRect(cx+2,cy+1,3,3);
-  } else if(o.type==='typing'){
-    // keyboard rows
-    g.fillStyle='#2b1b4d';
-    g.fillRect(cx-5,cy-4,10,2); g.fillRect(cx-5,cy-1,10,2); g.fillRect(cx-3,cy+2,6,2);
-    g.fillStyle='#fff'; g.fillRect(cx-5,cy-4,2,2); g.fillRect(cx+1,cy-1,2,2);
-  } else if(o.type==='simon'){
-    // fox-memory 2x2 pads
-    g.fillStyle='#ff9ed2'; g.fillRect(cx-5,cy-4,4,4);
-    g.fillStyle='#fff3a3'; g.fillRect(cx,cy-4,5,4);
-    g.fillStyle='#7bffef'; g.fillRect(cx-5,cy+1,4,4);
-    g.fillStyle='#c9b8ff'; g.fillRect(cx,cy+1,5,4);
-  } else if(o.type==='scramble'){
-    // rune letters
-    g.fillStyle='#2b1b4d'; g.font='bold 9px monospace';
-    g.fillText('A⇄Z',cx,cy+4);
-  } else if(o.type==='catch'){
-    // loose braincell
-    g.font='11px serif'; g.fillText('🧠',cx,cy+4);
-  } else {
-    // riddle: classic '?'
-    g.fillStyle='#2b1b4d'; g.font='bold 11px monospace';
-    g.fillText('?',cx,cy+4);
-  }
-  // name tag so the map is readable at a glance
-  g.font='bold 8px monospace';
-  const label=meta.name;
-  const w=g.measureText(label).width+8;
-  g.fillStyle='#1a0f2e'; g.fillRect(cx-w/2,y-26,w,11);
-  g.fillStyle=meta.color; g.fillText(label,cx,y-17);
+function drawVeteran(g,x,y){
+  drawCat(g,x,y,'#d8c8a8',true);
+  const s=3, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s);
+  g.fillStyle='#5a1e1e'; g.fillRect(ox+5*s,oy+8*s,3*s,1*s); // scar
+  g.fillStyle='#7a4a1e'; g.fillRect(ox+13*s,oy+10*s,2*s,4*s); // sake bottle
+  g.fillStyle='#e8d8b8'; g.fillRect(ox+13*s,oy+9*s,2*s,1*s);
+  // quest marker
+  const b=Math.sin(Date.now()/300)*3;
+  g.fillStyle='#ffd93d'; g.font='bold 20px monospace'; g.textAlign='center';
+  g.fillText('!',x,y-52+b);
+}
+function drawRaccoon(g,x,y){
+  const s=2, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s+Math.sin(Date.now()/260+x)*1.5);
+  const P=(a,b,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+a*s,oy+b*s,w*s,h*s);};
+  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-12,y+12,24,4);
+  P(3,10,10,4,'#8a8a8a'); P(4,9,8,3,'#9a9a9a');
+  P(3,7,2,2,'#6a6a6a'); P(11,7,2,2,'#6a6a6a');
+  P(4,9,8,2,'#2b2b2b'); P(6,9,1,2,'#8a8a8a'); P(9,9,1,2,'#8a8a8a'); // mask
+  P(5,10,1,1,'#fff'); P(10,10,1,1,'#fff');
+  P(7,12,2,1,'#1a1a1a');
+  for(let i=0;i<3;i++){ P(13+i,10+(i%2),1,2,i%2?'#3a3a3a':'#8a8a8a'); } // ringed tail
+  P(5,14,2,1,'#2b2b2b'); P(9,14,2,1,'#2b2b2b');
+}
+function drawDog(g,x,y,color){
+  const s=2, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s);
+  const P=(a,b,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+a*s,oy+b*s,w*s,h*s);};
+  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-10,y+12,20,4);
+  P(3,10,10,4,color); P(4,8,8,4,'#e8c890');
+  P(3,6,2,3,color); P(11,6,2,3,color); // floppy ears
+  P(5,10,2,2,'#1a0f2e'); P(9,10,2,2,'#1a0f2e');
+  P(7,12,2,2,'#1a0f2e');
+  P(2,12,2,1,'#fff'); // headband tails (ramen chef!)
+  P(4,6,8,1,'#fff');
+  P(5,14,2,1,'#1a0f2e'); P(9,14,2,1,'#1a0f2e');
+}
+function drawCop(g,x,y,name){
+  const s=2, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s);
+  const P=(a,b,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+a*s,oy+b*s,w*s,h*s);};
+  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-10,y+16,20,4);
+  P(5,4,6,3,'#f0c8a0');                       // face
+  P(4,2,8,2,'#1a2a5a'); P(6,1,4,1,'#1a2a5a'); // cap
+  g.fillStyle='#ffd93d'; g.fillRect(ox+7*s,oy+2*s,2*s,1*s); // badge glint
+  P(5,7,6,2,'#2a3a6b');                        // uniform
+  P(4,9,8,4,'#22335c'); P(7,9,2,4,'#101a3a'); // torso + tie
+  P(7,9,2,1,'#c9184a');
+  P(5,13,2,3,'#141428'); P(9,13,2,3,'#141428'); // legs
+  g.fillStyle='#0a0514'; g.font='bold 8px monospace'; g.textAlign='center';
+  g.fillText(name.toUpperCase(),x,y+28);
+}
+function drawBossCat(g,x,y){
   const t=Date.now()/400;
-  for(let i=0;i<2;i++){ const a=t+i*3.1; g.fillStyle='#fff8d0'; g.fillRect(o.x+Math.cos(a)*20-1, y+Math.sin(a)*20-1,3,3); }
+  g.fillStyle=`rgba(255,15,60,${.12+.08*Math.sin(t)})`; g.fillRect(x-40,y-46,80,92);
+  const s=3, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s+Math.sin(t)*2);
+  const P=(a,b,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+a*s,oy+b*s,w*s,h*s);};
+  g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(x-14,y+22,28,6);
+  P(3,9,10,5,'#15151f'); P(4,8,8,3,'#1d1d2a');
+  P(2,5,3,4,'#15151f'); P(11,5,3,4,'#15151f'); // ears
+  P(2,5,1,2,'#3a0a14'); P(13,5,1,2,'#3a0a14');
+  const gl=.6+.4*Math.sin(t*2); // pulsing red judgment eyes
+  g.fillStyle=`rgba(255,20,50,${gl})`;
+  g.fillRect(ox+5*s,oy+9*s,2*s,2*s); g.fillRect(ox+9*s,oy+9*s,2*s,2*s);
+  g.fillStyle='#ffd93d'; // tiny golden crown
+  g.fillRect(ox+6*s,oy+1*s,4*s,2*s); g.fillRect(ox+6*s,oy+0,1*s,1*s); g.fillRect(ox+8*s,oy+0,1*s,1*s); g.fillRect(ox+10*s,oy+0,1*s,1*s);
+  P(7,12,2,1,'#3a0a14');
 }
-function drawExitGate(g,ex,ey){
-  // Old Meadow Gate: two mossy stones + oak arch + glowing field portal. Open-world, not town.
-  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(ex-26,ey+18,52,8);
-  const p=(Math.sin(Date.now()/400)+1)/2;
-  g.fillStyle=`rgba(255,217,61,${0.12+p*0.18})`; g.fillRect(ex-30,ey-30,60,64);
-  // stone pillars
-  g.fillStyle='#6b6b6b'; g.fillRect(ex-22,ey-14,10,34); g.fillRect(ex+12,ey-14,10,34);
-  g.fillStyle='#9a9a9a'; g.fillRect(ex-22,ey-14,10,4); g.fillRect(ex+12,ey-14,10,4);
-  g.fillStyle='#4a4a4a'; g.fillRect(ex-22,ey+12,10,8); g.fillRect(ex+12,ey+12,10,8);
-  // moss
-  g.fillStyle='#3e8e3a'; g.fillRect(ex-22,ey-6,10,4); g.fillRect(ex+12,ey+2,10,4);
-  g.fillRect(ex-22,ey+6,4,4); g.fillRect(ex+18,ey-10,4,6);
-  // wooden beam across
-  g.fillStyle='#6b4423'; g.fillRect(ex-26,ey-22,52,8);
-  g.fillStyle='#8a6a3e'; g.fillRect(ex-26,ey-22,52,3);
-  // hanging vines
-  g.fillStyle='#2d6a4f'; g.fillRect(ex-14,ey-14,4,10); g.fillRect(ex+10,ey-14,4,14);
-  g.fillStyle='#74c69d'; g.fillRect(ex-14,ey-8,4,3); g.fillRect(ex+10,ey-6,4,3);
-  // portal glow between pillars
-  g.fillStyle='#fff8d0'; g.fillRect(ex-10,ey-8,20,28);
-  g.fillStyle='#ffd93d'; g.fillRect(ex-8,ey-6,16,24);
-  g.fillStyle='#fff'; g.fillRect(ex-4,ey,8,10);
-  g.fillStyle='#2b1b4d'; g.font='bold 11px monospace'; g.textAlign='center';
-  g.fillStyle='#1d2b1d'; g.fillText('EXIT 出口', ex, ey+34);
+// ---- buildings: 2000s Japanese town, night version ----
+function drawBuilding(g,b){
+  const {x,y,w,h}=b;
+  g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(x-4,y+h-2,w+8,8);
+  if(b.kind==='house'){
+    g.fillStyle='#3a3348'; g.fillRect(x,y+14,w,h-14);           // plaster wall
+    g.fillStyle='#2c2538'; for(let i=0;i<w/12;i++) g.fillRect(x+6+i*12,y+22,4,h-30); // siding
+    g.fillStyle=b.roof||'#3a4a6b';
+    g.fillRect(x-6,y,w+12,18);                                    // tiled roof
+    g.fillStyle='rgba(255,255,255,.08)'; g.fillRect(x-6,y,w+12,4);
+    g.fillStyle='#14101f'; for(let i=0;i<w/10;i++) g.fillRect(x+i*10,y+8,3,10); // tiles
+    g.fillStyle='#ffd98a'; g.fillRect(x+w/2-10,y+34,20,24);       // warm window
+    g.fillStyle='#2b1b14'; g.fillRect(x+w/2-10,y+34,20,3); g.fillRect(x+w/2-2,y+34,4,24);
+    g.fillStyle='#1a2030'; g.fillRect(x+w-34,y+36,18,18);          // dark window (someone asleep)
+    g.fillStyle='#2b1b14'; g.fillRect(x+w-34,y+36,18,3);
+    g.fillStyle='#6a6a75'; g.fillRect(x+10,y+44,16,12);            // AC outdoor unit
+    g.fillStyle='#3a3a45'; g.fillRect(x+12,y+46,12,3); g.fillRect(x+12,y+51,12,2);
+    g.fillStyle='#4a3320'; g.fillRect(x+12,y+h-34,22,34);         // door
+    g.fillStyle='#ffd98a'; g.fillRect(x+14,y+h-30,6,6);           // door lamp
+  } else if(b.kind==='shop'){
+    g.fillStyle='#2e2a3e'; g.fillRect(x,y+20,w,h-20);
+    g.fillStyle=b.awning||'#ff5a5a'; g.fillRect(x-4,y+20,w+8,12); // awning
+    g.fillStyle='rgba(255,255,255,.25)'; for(let i=0;i<w/14;i++) g.fillRect(x+i*14,y+20,6,12);
+    g.fillStyle='#14101f'; g.fillRect(x,y,w,22);                  // signboard
+    g.fillStyle=b.awning||'#ff5a5a'; g.font='bold 13px monospace'; g.textAlign='center';
+    g.fillText(b.name||'SHOP',x+w/2,y+15);
+    g.fillStyle='#8a7a9a'; g.font='10px monospace'; g.fillText(b.jp||'',x+w/2,y+28);
+    g.fillStyle='#bfe8ff'; g.fillRect(x+8,y+44,w-16,34);          // glass front
+    g.fillStyle='#2b1b14'; g.fillRect(x+8,y+44,w-16,4);
+    g.fillStyle='rgba(255,255,255,.35)'; g.fillRect(x+12,y+48,6,26);
+    g.fillStyle='#ff5a5a'; g.fillRect(x+16,y+56,10,10); g.fillStyle='#ffd93d'; g.fillRect(x+30,y+56,10,10); g.fillStyle='#7bff9e'; g.fillRect(x+44,y+56,10,10); // display goods
+    g.fillStyle='#4a2c14'; g.fillRect(x+w-34,y+h-40,24,40);        // door
+    // hanging vertical sign — peak shotengai
+    g.fillStyle='#0e0a14'; g.fillRect(x-16,y+8,14,52);
+    g.fillStyle=b.awning||'#ff5a5a'; g.fillRect(x-15,y+9,12,50);
+    g.fillStyle='#fff'; g.font='bold 10px monospace'; g.textAlign='center';
+    const vn=(b.name||'S').slice(0,3).split('');
+    vn.forEach((ch,i)=>g.fillText(ch,x-9,y+24+i*13));
+  } else if(b.kind==='netcafe'){
+    g.fillStyle='#1a1a2e'; g.fillRect(x,y+18,w,h-18);
+    g.fillStyle='#14101f'; g.fillRect(x,y,w,26);
+    g.fillStyle='#35e0e6'; g.font='bold 14px monospace'; g.textAlign='center';
+    g.fillText('NET CAFE 24H',x+w/2,y+15);
+    g.fillStyle='#c9a7ff'; g.font='11px monospace'; g.fillText('ネット • 24時間',x+w/2,y+30);
+    // glowing monitor windows in a row
+    for(let i=0;i<5;i++){
+      const wx=x+14+i*((w-28)/5);
+      const cols=['#35e0e6','#7bffef','#c9a7ff','#ffd93d','#ff9ed2'];
+      g.fillStyle='#0e0a14'; g.fillRect(wx,y+40,(w-28)/5-6,30);
+      g.fillStyle=cols[i%5]; g.fillRect(wx+2,y+42,(w-28)/5-10,20);
+      g.fillStyle='rgba(255,255,255,.5)'; g.fillRect(wx+4,y+44,(w-28)/5-14,3);
+    }
+    g.fillStyle='#0e1420'; g.fillRect(x-16,y+8,14,52);            // vertical sign
+    g.fillStyle='#35e0e6'; g.fillRect(x-15,y+9,12,50);
+    g.fillStyle='#0e1420'; g.font='bold 10px monospace';
+    ['ネ','ッ','ト'].forEach((ch,i)=>g.fillText(ch,x-9,y+24+i*13));
+    g.fillStyle='#4a2c14'; g.fillRect(x+w/2-16,y+h-40,32,40);     // door
+    g.fillStyle='#35e0e6'; g.fillRect(x+w/2-12,y+h-34,24,5);
+  } else if(b.kind==='pub'){
+    g.fillStyle='#241019'; g.fillRect(x,y+16,w,h-16);            // dark wood
+    g.fillStyle='#3a1c26'; for(let i=0;i<w/16;i++) g.fillRect(x+i*16,y+20,4,h-24);
+    g.fillStyle='#14101f'; g.fillRect(x,y,w,26);
+    g.fillStyle='#ff5a5a'; g.font='bold 16px monospace'; g.textAlign='center';
+    g.fillText('NEKO PUB',x+w/2,y+17);
+    g.fillStyle='#ff9ed2'; g.font='11px monospace'; g.fillText('ネコ • 酒',x+w/2,y+31);
+    // red paper lanterns flanking the door
+    for(const lx of [x+w/2-52,x+w/2+52]){
+      g.fillStyle=`rgba(255,80,60,${.25+.1*Math.sin(Date.now()/350+lx)})`; g.fillRect(lx-14,y+30,28,44);
+      g.fillStyle='#ff3b30'; g.fillRect(lx-8,y+36,16,26);
+      g.fillStyle='#2b1b14'; g.fillRect(lx-8,y+33,16,3); g.fillRect(lx-8,y+62,16,3);
+      g.fillStyle='#ffe8a8'; g.font='bold 10px monospace'; g.fillText('酒',lx,y+52);
+    }
+    g.fillStyle='#4a2c14'; g.fillRect(x+w/2-16,y+h-46,32,46);     // door
+    g.fillStyle='#ffd98a'; g.fillRect(x+w/2-12,y+h-40,24,6);
+  } else if(b.kind==='ramen'){
+    g.fillStyle='#2a2018'; g.fillRect(x,y+18,w,h-18);
+    g.fillStyle='#14101f'; g.fillRect(x,y,w,24);
+    g.fillStyle='#ffd93d'; g.font='bold 15px monospace'; g.textAlign='center';
+    g.fillText('INU RAMEN',x+w/2,y+16);
+    g.fillStyle='#7bffef'; g.font='11px monospace'; g.fillText('イヌ • ラーメン',x+w/2,y+30);
+    // noren curtain + steaming counter window
+    const cols=['#24365e','#c9184a','#e8e0d0'];
+    for(let i=0;i<7;i++){ g.fillStyle=cols[i%3]; g.fillRect(x+20+i*((w-40)/7),y+36,(w-40)/7-3,26); }
+    g.fillStyle='#0e0a14'; g.fillRect(x+24,y+66,w-48,34);
+    g.fillStyle='#ffb35c'; g.fillRect(x+28,y+70,w-56,6);
+    g.fillStyle='rgba(220,220,230,.5)';
+    const st=Date.now()/500; for(let i=0;i<4;i++){ g.fillRect(x+40+i*40+Math.sin(st+i)*6,y+56+((st*10+i*7)%14),4,8); }
+    g.fillStyle='#4a2c14'; g.fillRect(x+w/2-16,y+h-40,32,40);
+  } else if(b.kind==='koban'){
+    g.fillStyle='#2a3550'; g.fillRect(x,y+14,w,h-14);
+    g.fillStyle='#e8e8f0'; g.fillRect(x,y,w,16);
+    g.fillStyle='#c9184a'; g.font='bold 13px monospace'; g.textAlign='center'; g.fillText('交番 KOBAN',x+w/2,y+13);
+    g.fillStyle='#bfe8ff'; g.fillRect(x+10,y+34,w-20,30);
+    g.fillStyle='#c9184a'; g.fillRect(x+w/2-2,y+34,4,30);
+    g.fillStyle='#141428'; g.fillRect(x+w/2-14,y+h-36,28,36);
+  }
 }
-function drawWoodSign(g,x,y,label){
-  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-10,y+8,20,4);
-  g.fillStyle='#6b4423'; g.fillRect(x-2,y-8,4,18);
-  g.fillStyle='#a67c4a'; g.fillRect(x-14,y-16,28,12);
-  g.fillStyle='#6b4423'; g.fillRect(x-14,y-16,28,2); g.fillRect(x-14,y-6,28,2);
-  g.fillStyle='#2b1b14'; g.font='bold 8px monospace'; g.textAlign='center';
-  g.fillText(label,x,y-7);
+function drawVending(g,m){
+  const {x,y}=m;
+  g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(x-13,y+8,26,5);
+  const fl=.7+.3*Math.sin(Date.now()/300+x);
+  g.fillStyle=`rgba(140,220,255,${.18*fl})`; g.fillRect(x-18,y-30,36,44);
+  g.fillStyle='#1c4a6b'; g.fillRect(x-11,y-22,22,32);
+  g.fillStyle='#bfe8ff'; g.fillRect(x-8,y-19,16,20);
+  const cols=['#ff5a5a','#ffd93d','#7bff9e','#ff9ed2'];
+  for(let r=0;r<3;r++) for(let c=0;c<2;c++){ g.fillStyle=cols[(r*2+c)%4]; g.fillRect(x-7+c*8,y-17+r*6,6,4); }
+  g.fillStyle='#0e1420'; g.fillRect(x-11,y+10,22,4);
+  g.fillStyle='#fff'; g.font='bold 7px monospace'; g.textAlign='center'; g.fillText('のみもの',x,y-25);
 }
-function drawTrailPost(g,x,y){
-  // little farm trail marker with firefly jar
-  g.fillStyle='#6b4423'; g.fillRect(x-2,y-10,4,20);
-  g.fillStyle='#ffd93d'; g.fillRect(x-5,y-14,10,8);
-  g.fillStyle='#fff8d0'; g.fillRect(x-3,y-12,6,4);
-  g.fillStyle='#3e8e3a'; g.fillRect(x-5,y-6,10,2);
+function drawLamp(g,x,y){
+  g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(x-6,y+2,12,4);
+  g.fillStyle='#1c2230'; g.fillRect(x-3,y-40,6,44);               // pole
+  g.fillStyle='#1c2230'; g.fillRect(x-3,y-44,16,4);               // arm
+  const fl=.75+.25*Math.sin(Date.now()/400+x);
+  g.fillStyle=`rgba(255,220,150,${.16*fl})`; g.fillRect(x-2,y-38,30,30);
+  g.fillStyle='#2b1b14'; g.fillRect(x+5,y-40,12,10);              // head
+  g.fillStyle=`rgba(255,230,170,${.6+.4*fl})`; g.fillRect(x+6,y-38,10,6);
+}
+function drawPond(g,x,y,w,h){
+  const t=Date.now()/600;
+  g.fillStyle='#0e2a3a'; g.fillRect(x-8,y-6,w+16,h+14);      // muddy shore
+  g.fillStyle='#5a4a33'; g.fillRect(x-8,y-6,w+16,5);
+  g.fillStyle='#123a52'; g.fillRect(x,y,w,h);                 // water
+  g.fillStyle='#1c5a7a';
+  for(let i=0;i<6;i++){ const wx=x+((i*67+t*22)%(w+40))-20; g.fillRect(wx,y+12+i*((h-20)/6),30,3); }
+  g.fillStyle='#2d6a4f';                                      // lily pads
+  g.fillRect(x+30,y+20,16,8); g.fillRect(x+w-60,y+h-30,20,10);
+  g.fillStyle='#ff9ed2'; g.fillRect(x+35,y+18,5,5);
+  g.fillStyle='#3e8e3a';                                      // reeds
+  for(let i=0;i<4;i++){ g.fillRect(x-4+i*7,y-22,4,20); g.fillRect(x+w-2+i*7,y+h-4,4,20); }
+  g.fillStyle=`rgba(160,220,255,${.12+.06*Math.sin(t)})`; g.fillRect(x,y,w,h); // moon shimmer
+}
+function drawPondSign(g,x,y){
+  g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(x-70,y+30,140,6);
+  g.fillStyle='#5a3a1a'; g.fillRect(x-52,y-6,10,40); g.fillRect(x+42,y-6,10,40);
+  g.fillStyle='#a67c4a'; g.fillRect(x-72,y-52,144,50);
+  g.fillStyle='#5a3a1a'; g.fillRect(x-72,y-52,144,4); g.fillRect(x-72,y-6,144,4);
+  g.fillStyle='#2b1408'; g.font='bold 13px monospace'; g.textAlign='center';
+  g.fillText('DEFINITELY NOT A',x,y-34);
+  g.fillText('FISHING MINIGAME!',x,y-18);
+  g.fillStyle='#5a2a3a'; g.font='9px monospace'; g.fillText('(shhh. press SPACE at the shore.)',x,y-8);
+}
+function drawHollow(g,x,y){
+  // starving skinny kitty + tragically empty bowl
+  const bob=Math.sin(Date.now()/400)*1.5;
+  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-12,y+14,26,4);
+  g.fillStyle='#8a8a9a'; g.fillRect(x+16,y+8,20,8);           // bowl
+  g.fillStyle='#5a5a6a'; g.fillRect(x+16,y+8,20,3);
+  g.fillStyle='#ff9ed2'; g.font='bold 9px monospace'; g.textAlign='center'; g.fillText('EMPTY',x+26,y+2);
+  const s=2, ox=Math.floor(x-8*s), oy=Math.floor(y-8*s+bob);
+  const P=(a,b,w,h,c)=>{g.fillStyle=c;g.fillRect(ox+a*s,oy+b*s,w*s,h*s);};
+  P(4,10,7,4,'#9a9aa8'); P(5,8,5,4,'#ababba');                // thin body + head
+  P(4,6,2,3,'#9a9aa8'); P(8,6,2,3,'#9a9aa8');                 // ears
+  P(6,9,1,2,'#0a0514'); P(8,9,1,2,'#0a0514');                 // HUGE begging eyes
+  g.fillStyle='#fff'; g.fillRect(ox+6*s,oy+9*s,1*s,1*s);
+  P(3,13,2,1,'#5a5a6a'); P(9,13,2,1,'#5a5a6a');               // ribs (he is FINE. allegedly.)
+  P(4,11,1,3,'#7a7a8a');
+  g.fillStyle='#ffd93d'; g.font='bold 9px monospace'; g.fillText('...food?...',x,y-18+bob);
+}
+function drawMailbox(g,x,y){
+  g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(x-9,y+8,18,4);
+  g.fillStyle='#c9184a'; g.fillRect(x-8,y-12,16,20);
+  g.fillStyle='#e63956'; g.fillRect(x-8,y-12,16,4);
+  g.fillStyle='#fff'; g.fillRect(x-5,y-6,10,6);
+  g.fillStyle='#c9184a'; g.font='bold 7px monospace'; g.textAlign='center'; g.fillText('〒',x,y);
+}
+function drawSign(g,s){
+  g.fillStyle='#5a3a1a'; g.fillRect(s.x-2,s.y-22,4,26);
+  g.fillStyle='#a67c4a'; g.fillRect(s.x-34,s.y-36,68,18);
+  g.fillStyle='#2b1b14'; g.font='bold 9px monospace'; g.textAlign='center';
+  g.fillText(s.text,s.x,s.y-29); g.fillStyle='#5a3a6b'; g.font='8px monospace'; g.fillText(s.jp,s.x,s.y-21);
 }
 function drawPumpkin(g,x,y,big){
-  // guardian jack-o'-lantern for START / GATE — flickers
   const s=big?1.4:1, fl=0.6+0.4*Math.abs(Math.sin(Date.now()/380+x*3+y));
-  g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(x-11*s,y+9*s,22*s,5);
+  g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(x-11*s,y+9*s,22*s,5);
   g.fillStyle=`rgba(255,150,40,${0.16*fl})`; g.fillRect(x-15*s,y-13*s,30*s,28*s);
   g.fillStyle='#c96a1e'; g.fillRect(x-10*s,y-8*s,20*s,17*s);
   g.fillStyle='#e8932e'; g.fillRect(x-7*s,y-6*s,6*s,13*s); g.fillRect(x+1*s,y-6*s,6*s,13*s);
-  g.fillStyle='#4a2f14'; g.fillRect(x-2*s,y-13*s,4*s,6*s); // stem
+  g.fillStyle='#4a2f14'; g.fillRect(x-2*s,y-13*s,4*s,6*s);
   g.fillStyle=`rgba(255,235,130,${0.55+0.45*fl})`;
-  g.fillRect(x-7*s,y-4*s,5*s,5*s); g.fillRect(x+2*s,y-4*s,5*s,5*s); // eyes
-  g.fillRect(x-7*s,y+3*s,14*s,3*s); g.fillRect(x-4*s,y+6*s,8*s,2*s); // grin
+  g.fillRect(x-7*s,y-4*s,5*s,5*s); g.fillRect(x+2*s,y-4*s,5*s,5*s);
+  g.fillRect(x-7*s,y+3*s,14*s,3*s); g.fillRect(x-4*s,y+6*s,8*s,2*s);
+}
+function drawGround(g,sx,sy,vx,vy,v){
+  let base = v===1?'#23232e':(v===2?'#33333f':(v===3?'#2e2419':'#1d2b1d'));
+  if(v===0){ const r2=hash2(vx*3+11,vy*5+7); base = r2>0.72?'#1a2b1c':(r2<0.18?'#223622':'#1d2b1d'); }
+  g.fillStyle=base; g.fillRect(sx,sy,TILE,TILE);
+  let h=(vx*73856093 ^ vy*19349663)>>>0;
+  const rnd=()=>{h=(h*1664525+1013904223)>>>0;return h/4294967295;};
+  for(let i=0;i<5;i++){ const px2=sx+Math.floor(rnd()*11)*4, py2=sy+Math.floor(rnd()*11)*4;
+    g.fillStyle=rnd()>0.5?'rgba(0,0,0,.25)':'rgba(255,255,255,.05)'; g.fillRect(px2,py2,4,4); }
+  if(v===1&&(vx%2===0)&&!(vx>=26&&vx<=28&&vy>=16&&vy<=18)){ g.fillStyle='#8a7a2a'; g.fillRect(sx+TILE/2-6,sy+TILE/2-2,12,4); } // lane dashes
+  if(v===1&&vx>=26&&vx<=28&&vy>=16&&vy<=18){ // zebra crossing at the scramble
+    g.fillStyle='#c9c9d4';
+    for(let i=0;i<4;i++) g.fillRect(sx+4+i*11,sy+6,6,36);
+    g.fillStyle='rgba(0,0,0,.25)'; for(let i=0;i<4;i++) g.fillRect(sx+4+i*11,sy+6,6,4);
+  }
+  if(v===1&&(vy===16||vy===18)){ g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(sx,sy+(vy===16?TILE-4:0),TILE,4); } // gutters
+  if(v===1&&hash2(vx*3,vy*7)>0.9){ // manhole
+    g.fillStyle='#17171f'; g.fillRect(sx+12,sy+12,24,24);
+    g.fillStyle='#2c2c38'; g.fillRect(sx+14,sy+14,20,20);
+    g.fillStyle='#17171f'; g.fillRect(sx+22,sy+14,4,20); g.fillRect(sx+14,sy+22,20,4);
+  }
+  if(v===2&&(vy===15||vy===19)){ // tactile paving strips — tidy cozy sidewalks
+    g.fillStyle='#5a5228'; g.fillRect(sx,sy+TILE/2-5,TILE,10);
+    g.fillStyle='#8a7c33'; for(let i=0;i<6;i++){ g.fillRect(sx+2+i*8,sy+TILE/2-3,4,6); }
+  }
+  if(v===2&&hash2(vx+9,vy+3)>0.94){ // planter box with night bush
+    g.fillStyle='#5a3a1a'; g.fillRect(sx+8,sy+24,32,12);
+    g.fillStyle='#1e4028'; g.fillRect(sx+10,sy+12,28,16);
+    g.fillStyle='#2d6a4f'; g.fillRect(sx+12,sy+14,8,6); g.fillRect(sx+26,sy+16,8,6);
+  }
+  if(v===4){ g.fillStyle='rgba(255,255,255,.06)'; g.fillRect(sx,sy,TILE,3); g.fillRect(sx,sy,3,TILE); } // plaza grout
+  if(v===3&&rnd()>0.6){ g.fillStyle='#4a3b28'; g.fillRect(sx+8+rnd()*24,sy+8+rnd()*24,8,5); } // alley junk
+  if(v===0&&hash2(vx*5+1,vy*5+3)>0.94){ // jack-o'-lantern in the grass
+    const px0=sx+26, py0=sy+24, fl=0.6+0.4*Math.abs(Math.sin(Date.now()/400+vx*2+vy));
+    g.fillStyle=`rgba(255,150,40,${0.14*fl})`; g.fillRect(px0-6,py0-6,28,24);
+    g.fillStyle='#c96a1e'; g.fillRect(px0,py0,16,13);
+    g.fillStyle=`rgba(255,230,120,${0.5+0.5*fl})`;
+    g.fillRect(px0+3,py0+4,4,4); g.fillRect(px0+10,py0+4,4,4); g.fillRect(px0+3,py0+10,11,2);
+  }
+  if(hash2(vx+40,vy+77)>0.90){ g.fillStyle='rgba(120,70,180,.20)'; g.fillRect(sx+2,sy+26,44,14); } // mist
+}
+function drawPubInterior(g,sx,sy,vx,vy){
+  g.fillStyle=((vx+vy)%2===0)?'#3a2818':'#342416'; g.fillRect(sx,sy,TILE,TILE);
+  if(hash2(vx,vy)>0.9){ g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(sx+6,sy+6,8,5); } // stains. sleazy.
+}
+function drawCafeFloor(g,sx,sy,vx,vy){
+  g.fillStyle=((vx+vy)%2===0)?'#141428':'#101020'; g.fillRect(sx,sy,TILE,TILE);
+  g.fillStyle='rgba(53,224,230,.07)'; g.fillRect(sx,sy,TILE,4);
+  if(hash2(vx*2,vy*3)>0.92){ g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(sx+10,sy+30,14,6); } // cable spaghetti
 }
 
-function render(){
-  // resize handling
-  const r=canvas.getBoundingClientRect();
-  const W=Math.max(320,Math.floor(r.width)), H=640;
-  if(canvas.width!==W){canvas.width=W;canvas.height=H;}
-  ctx.fillStyle='#3d6b3f'; ctx.fillRect(0,0,canvas.width,canvas.height); // night grass base
-  const warmLights=[]; // {x,y,r,color} — every flame that pushes back the dark
-  const nowT=Date.now();
-  const x0=Math.max(0,Math.floor(cam.x/TILE)-1), y0=Math.max(0,Math.floor(cam.y/TILE)-1);
-  const x1=Math.min(COLS-1,Math.ceil((cam.x+canvas.width)/TILE)+1), y1=Math.min(ROWS-1,Math.ceil((cam.y+canvas.height)/TILE)+1);
-  for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
-    const sx=Math.floor(tx*TILE-cam.x), sy=Math.floor(ty*TILE-cam.y);
-    if(maze[ty][tx]===1){
-      drawFloorTile(ctx,sx,sy,tx,ty);
-      // field jack-o'-lanterns double as light sources (same hash as the art)
-      if(hash2(tx*5+1,ty*5+3)>0.94) warmLights.push({x:sx+34,y:sy+30,r:100+14*Math.sin(nowT/380+tx*2+ty),color:'255,154,61'});
+// ---------- UPDATE ----------
+let spaceEdge = false, spaceWas = false;
+function nearest(list, maxD){
+  let best=null, bd=maxD;
+  for(const e of list){ const d=Math.hypot(player.x-e.x,player.y-e.y); if(d<bd){bd=d;best=e;} }
+  return best;
+}
+function wander(e, dt, speed, bounds){
+  e.t+=dt;
+  if(e.t>1.4+Math.random()*0.3){ e.t=0; e.dir=Math.floor(Math.random()*4); }
+  const sp=(speed||40)*dt;
+  let nx=e.x, ny=e.y;
+  if(e.dir===0)ny-=sp; if(e.dir===1)ny+=sp; if(e.dir===2)nx-=sp; if(e.dir===3)nx+=sp;
+  const ok=bounds?bounds(nx,ny):!hitSolidNPC(nx,ny);
+  if(ok){ e.x=nx; e.y=ny; } else e.dir=Math.floor(Math.random()*4);
+}
+function hitSolidNPC(nx,ny){
+  const r=10;
+  for(const s of solidsFor()){
+    const cx=Math.max(s.x,Math.min(nx,s.x+s.w)), cy=Math.max(s.y,Math.min(ny,s.y+s.h));
+    if((nx-cx)*(nx-cx)+(ny-cy)*(ny-cy)<r*r) return true;
+  }
+  return false;
+}
+function update(dt){
+  if(!gameStarted||paused||modalOpen||dead||won) return;
+  nowSec+=dt;
+  // movement
+  let dx=0,dy=0;
+  if(keys['w']||keys['arrowup'])dy-=1; if(keys['s']||keys['arrowdown'])dy+=1;
+  if(keys['a']||keys['arrowleft'])dx-=1; if(keys['d']||keys['arrowright'])dx+=1;
+  if(dx&&dy){dx*=.7071;dy*=.7071;}
+  player.moving=!!(dx||dy);
+  if(dx<0)player.dir='left'; else if(dx>0)player.dir='right'; else if(dy<0)player.dir='up'; else if(dy>0)player.dir='down';
+  if(player.moving){ player.anim+=dt*9; player.stepSnd+=dt; if(player.stepSnd>.28){player.stepSnd=0;sfx('step');} } else player.anim=0;
+  const nx=player.x+dx*player.speed*dt;
+  if(!hitSolid(nx,player.y))player.x=nx;
+  const ny=player.y+dy*player.speed*dt;
+  if(!hitSolid(player.x,ny))player.y=ny;
+  // space edge
+  const sp=!!keys[' '];
+  spaceEdge=sp&&!spaceWas; spaceWas=sp;
+  if(spaceEdge) tryInteract();
+  // hunger (paused automatically while modal/paused)
+  hunger-=dt*(100/480);
+  if(hunger<=0){ hunger=0; die(); return; }
+  // camera
+  const MW=inMap?interiors[inMap].w:TW, MH=inMap?interiors[inMap].h:TH;
+  const W=MW*TILE, H=MH*TILE;
+  cam.x=Math.max(0,Math.min(W-canvas.width,player.x-canvas.width/2));
+  cam.y=Math.max(0,Math.min(H-canvas.height,player.y-canvas.height/2));
+  // NPCs
+  for(const c of strays) wander(c,dt,36);
+  for(const r of raccoons){ if(nowSec*1000<r.hiddenUntil)continue; wander(r,dt,30); }
+  for(const g of guards){ g.ph+=dt; const a=g.ph; g.x+=Math.cos(a)*8*dt; g.y+=Math.sin(a)*8*dt; }
+  updateCops(dt);
+  drawMinimapThrottled();
+  refreshHUD();
+}
+const copLectures = {
+  Nolan:['Officer Nolan here — yes, THE forty-something rookie. Even I know better than to tangle with the raccoon gang after dark.','Look, the kitty gang runs these alleys and the raccoons run the trash. You? You run along home. That\'s an order... ish. Nolan out.'],
+  Chen:['Officer Chen. Undercover rule one: blend in. You, glowing witch, do NOT blend in.','The raccoons have a whole trash economy and the cats tax it. Fascinating. Still illegal-ish. Move along, citizen.'],
+  Bradford:['Officer Bradford. Boot, listen up: strays are fine. Raccoons are a menace. The black-cat crew in the east alley? Do NOT engage.','Tough love time: I just saved you a trip to the Watch Commander. Grey already has paperwork with your name on it. Beat it.'],
+};
+function updateCops(dt){
+  for(const c of cops){
+    const d=Math.hypot(player.x-c.x,player.y-c.y);
+    const immune=nowSec*1000<player.immuneUntil;
+    if(!inMap && !immune && d<190){ // chase! (a beat slower than you — run!)
+      c.mode='chase';
+      const a=Math.atan2(player.y-c.y,player.x-c.x);
+      const nx=c.x+Math.cos(a)*(c.speed||135)*dt, ny=c.y+Math.sin(a)*(c.speed||135)*dt;
+      if(!hitSolidNPC(nx,ny)){ c.x=nx; c.y=ny; }
+      if(d<28){ caughtByCop(c); return; }
+    } else {
+      c.mode='patrol';
+      c.t+=dt;
+      if(c.t>2){ c.t=0; c.dir=Math.floor(Math.random()*4); }
+      // drift toward waypoint, wander otherwise
+      const wx=c.wx*TILE, wy=c.wy*TILE;
+      const dd=Math.hypot(wx-c.x,wy-c.y);
+      let nx=c.x, ny=c.y;
+      if(dd>60){ const a=Math.atan2(wy-c.y,wx-c.x); nx+=Math.cos(a)*55*dt; ny+=Math.sin(a)*55*dt; }
+      else { const sp2=55*dt; if(c.dir===0)ny-=sp2; if(c.dir===1)ny+=sp2; if(c.dir===2)nx-=sp2; if(c.dir===3)nx+=sp2; }
+      if(!hitSolidNPC(nx,ny)){ c.x=nx; c.y=ny; }
     }
-    else drawWallTile(ctx,sx,sy,tx,ty);
   }
-  // start meadow camp
-  const ssx=Math.floor(1*TILE-cam.x), ssy=Math.floor(1*TILE-cam.y);
-  ctx.fillStyle='rgba(150,115,70,.9)'; ctx.fillRect(ssx+4,ssy+28,TILE-8,16);
-  ctx.fillStyle='#6b4e2c'; for(let i=0;i<5;i++) ctx.fillRect(ssx+6+i*8,ssy+30,4,12);
-  drawWoodSign(ctx, ssx+TILE/2, ssy+16, 'START');
-  // exit — old meadow gate
-  const exS=Math.floor((COLS-2)*TILE+TILE/2-cam.x), eyS=Math.floor((ROWS-2)*TILE+TILE/2-cam.y);
-  drawExitGate(ctx, exS, eyS);
-  warmLights.push({x:exS,y:eyS,r:130+10*Math.sin(nowT/500),color:'255,217,61'}); // portal glow
-  // trial stones (type passes through so each draws its own look)
-  for(const o of orbs){
-    if(o.done) continue;
-    drawOrb(ctx,{x:o.x-cam.x,y:o.y-cam.y,bob:o.bob,type:o.type});
-    const mc=(TRIALS[o.type]||TRIALS.riddle).color;
-    const rgb=parseInt(mc.slice(1,3),16)+','+parseInt(mc.slice(3,5),16)+','+parseInt(mc.slice(5,7),16);
-    warmLights.push({x:o.x-cam.x,y:o.y-cam.y,r:64,color:rgb});
+}
+function caughtByCop(c){
+  for(const k in keys)keys[k]=false;
+  sfx('siren');
+  const L=copLectures[c.name]||copLectures.Nolan;
+  showDialogue('Officer '+c.name+' 🚔',[L[0],L[1],'<i>(He escorts you a few steps down the street and tells Grey over the radio it\'s handled.)</i>'],()=>{
+    const a=Math.atan2(player.y-c.y,player.x-c.x)||0;
+    player.x+=Math.cos(a)*110; player.y+=Math.sin(a)*110;
+    player.immuneUntil=nowSec*1000+6000;
+  });
+}
+
+// ---------- INTERACTION ----------
+const EXIT_MATS={pub:{x:11,y:13},cafe:{x:10,y:11}};
+function tryInteract(){
+  // doors first
+  for(const d of (inMap?[]:doors)){
+    if(Math.hypot(player.x-d.x,player.y-d.y)<d.r){
+      if(d.to==='pub'){ enterMap('pub',11,12,'up','🍶 NEKO PUB — sleazy, sticky, perfect. Veteran waits at the back.','Entered the pub!'); return; }
+      if(d.to==='cafe'){ enterMap('cafe',10,9.6,'up','💻 NET CAFE 24H — ozone, melon soda, glowing screens.','Entered the net cafe!'); return; }
+      if(d.to==='ramen'){ ramenMenu(); return; }
+    }
   }
-  // cats
-  for(const c of cats) drawCat(ctx, c.x-cam.x, c.y-cam.y, c.color);
-  // trail posts near start + exit
-  drawTrailPost(ctx, ssx+TILE-8, ssy+TILE-10);
-  drawTrailPost(ctx, exS+30, eyS+10);
-  // halloween: guardian pumpkins at START and flanking the GATE
-  drawPumpkin(ctx, ssx+8, ssy+30, false);
-  drawPumpkin(ctx, exS-30, eyS+12, true);
-  drawPumpkin(ctx, exS+30, eyS+14, false);
-  warmLights.push({x:ssx+8,y:ssy+30,r:95,color:'255,154,61'});
-  warmLights.push({x:exS-30,y:eyS+12,r:120,color:'255,154,61'});
-  warmLights.push({x:exS+30,y:eyS+14,r:95,color:'255,154,61'});
-  // player
-  const plx=player.x-cam.x, ply=player.y-cam.y;
-  drawWitch(ctx, plx, ply, player.dir, player.anim, player.moving);
-  // particles
-  for(const p of particles){ ctx.fillStyle=p.color; ctx.fillRect(p.x-cam.x-2,p.y-cam.y-2,4,4); }
-  // ---- NIGHTFALL: darkness mask with light holes, then warm tint glows ----
+  if(inMap){
+    const m=EXIT_MATS[inMap];
+    if(Math.hypot(player.x-m.x*TILE,player.y-m.y*TILE)<44){ exitMap(); return; }
+    if(inMap==='pub'){
+      if(Math.hypot(player.x-veteran.x,player.y-veteran.y)<64){ talkVeteran(); return; }
+      const pt=nearest(patrons,56); if(pt){ talkPatron(pt); return; }
+    } else {
+      if(clerk&&Math.hypot(player.x-clerk.x,player.y-clerk.y)<58){ talkClerk(); return; }
+      if(Math.hypot(player.x-10*TILE,player.y-5.4*TILE)<54){ computerMenu(); return; }
+    }
+    return;
+  }
+  const cat=nearest(strays.filter(c=>true),46);
+  if(cat){ petCat(cat); return; }
+  const rc=nearest(raccoons.filter(r=>nowSec*1000>=r.hiddenUntil),46);
+  if(rc){ fightRaccoon(rc); return; }
+  if(boss && Math.hypot(player.x-boss.x,player.y-boss.y)<60){ talkBoss(); return; }
+  for(const gd of guards){ if(Math.hypot(player.x-gd.x,player.y-gd.y)<40){ showDialogue('Black cat',['...Hssss.','(It says nothing else. It doesn\'t have to.)']); return; } }
+  for(const dg of dogs){ if(Math.hypot(player.x-dg.x,player.y-dg.y)<52){ ramenMenu(); return; } }
+  for(const m of machines){ if(Math.hypot(player.x-m.x,player.y-m.y)<44){ vendMenu(m); return; } }
+  for(const p of PONDS){
+    const r=pondRectPx(p);
+    const cx=Math.max(r.x,Math.min(player.x,r.x+r.w)), cy=Math.max(r.y,Math.min(player.y,r.y+r.h));
+    if(Math.hypot(player.x-cx,player.y-cy)<70){ goFishing(); return; }
+  }
+  if(hollow&&Math.hypot(player.x-hollow.x,player.y-hollow.y)<54){ meetHollow(); return; }
+}
+function petCat(cat){
+  const again = nowSec < cat.nextOk;
+  const line = strayLines[Math.floor(Math.random()*strayLines.length)];
+  sfx('meow');
+  if(!again && questStage>=2){
+    cat.nextOk = nowSec + 120;
+    addStanding(2);
+    showDialogue(cat.name||'Stray',['"'+line+'"',`<i>(+2 cat-gang standing! Come back in 2 minutes for more. Now: ${standing})</i>`]);
+  } else if(!again){
+    cat.nextOk = nowSec + 120;
+    showDialogue(cat.name||'Stray',['"'+line+'"',`<i>(The cat gang isn't watching yet — join them first and pets like this earn standing!)</i>`]);
+  } else {
+    const s=Math.ceil(cat.nextOk-nowSec);
+    showDialogue(cat.name||'Stray',['"'+line+'"',`<i>(This one needs a nap. Standing again in ${s}s.)</i>`]);
+  }
+}
+// ----- veteran + drinking quest -----
+function talkVeteran(){
+  if(questStage===0){
+    showDialogue('Veteran Kitty 🍶',[
+      '"...Well well. The forest witch. Heard you collected all ten braincells. Big deal."',
+      '"Name\'s Veteran. I run with the CAT GANG. Meanest litter in town. And you, short stuff... you got potential."',
+      '"Here\'s the offer: join the gang. BUT. First you gotta beat ME. At drinking. Milk. A whole bowl."',
+      '"Chug faster than this old tom and you\'re family. Lose... and you come back when your paws stop shaking. DEAL?"',
+    ],()=>{ drinkOffer(); });
+  } else if(questStage===1){
+    showDialogue('Veteran Kitty 🍶',['"Back for another bowl, huh? Liquid courage. I respect it. SIT."'],()=>{ drinkOffer(); });
+  } else if(questStage===3){
+    if(fish>=3){
+      showDialogue('Veteran Kitty 🍶',[
+        '"Sniff sniff... is that FRESH pond fish?! THREE of them?! You beautiful menace!"',
+        '"Hand \'em over and the gang feasts tonight. Strength of ten alleys! You in?"',
+      ],()=>{ fishTurnIn(); });
+    } else {
+      showDialogue('Veteran Kitty 🍶',[
+        `"The gang runs on fish, kid. We need THREE pond swimmers to get strong enough for Nyanner. You got ${fish}/3."`,
+        '"SE pond. Big sign. Can\'t miss it. The sign says it\'s NOT a fishing minigame — that\'s how you know it IS."',
+      ]);
+    }
+  } else {
+    const lines=['"My newest soldier! The gang loves you already."'];
+    if(questStage>=4) lines.push('"Heard Nyanner himself wants a piece of you. East alley. Don\'t die, kid. I\'m too old to cry."');
+    else lines.push(`"Get that standing up, kid. Pet strays, slap raccoons. Come back famous. (${standing}/50)"`);
+    showDialogue('Veteran Kitty 🍶',lines);
+  }
+}
+function fishTurnIn(){
+  const body=openModal('FEED THE GANG','さかな • ぐん!');
+  const p=document.createElement('p');
+  p.innerHTML=`Veteran eyes your <b>3 fish</b> like treasure. The whole pub leans in. Someone whispers <i>"the feast... the fabled feast..."</i><br>Hand over the fish? 🐟🐟🐟`;
+  body.appendChild(p);
+  const go=_btn(`HAND OVER 3 FISH 🐟 (have ${fish})`); go.style.width='100%'; go.style.marginTop='6px';
+  const no=_btn('Hold on','pink'); no.style.width='100%'; no.style.marginTop='6px';
+  go.onclick=()=>{
+    if(fish<3){ sfx('hit'); toast('Not enough fish! The gang can smell the shortfall.'); return; }
+    fish-=3; questStage=4; refreshHUD(); spawnBoss(); refreshHUD();
+    showDialogue('Veteran Kitty 🍶',[
+      '"THE GANG FEASTS TONIGHT!! Ohhh, we\'re strong now. Feel that? That\'s fish power."',
+      '"Which means... it\'s time. NYANNER sent word. He waits in the east back alley. End him, kid. For the gang."',
+    ]);
+    log('Fish delivered! Boss invitation received!');
+  };
+  no.onclick=closeModal;
+  body.appendChild(go); body.appendChild(no);
+}
+function drinkOffer(){
+  const body=openModal('JOIN THE CAT GANG?','なかま • さけ!');
+  const p=document.createElement('p');
+  p.innerHTML='Veteran slides a giant bowl of milk across the counter. The whole pub goes quiet. A one-eyed cat faints.<br><b>Accept his drinking challenge?</b> 🥛';
+  body.appendChild(p);
+  const row=document.createElement('div'); row.style.display='flex'; row.style.gap='8px';
+  const yes=_btn('CHUG! 🥛'); yes.style.flex='1';
+  const no=_btn('Not yet','pink'); no.style.flex='1';
+  row.appendChild(yes); row.appendChild(no); body.appendChild(row);
+  yes.onclick=()=>{ drinkGame(win=>{
+    if(win){
+      questStage=2; sfx('quest'); refreshHUD(); checkBossUnlock(); // in case 50 standing was ground out early
+      showDialogue('Veteran Kitty 🍶',['" ... ... ... GAAAH! FINE! You win! You chug like a raccoon in a dumpster!"','"Welcome to the CAT GANG, kid! Pet strays (+2), beat raccoons (+5, +5Ⓜ). Get to 30 standing and make us legends!"']);
+      log('Joined the CAT GANG! 猫組!');
+    } else {
+      questStage=1; refreshHUD();
+      showDialogue('Veteran Kitty 🍶',['"HA! Milk ran down your chin! Classic rookie spill!"','"Go practice on a juice box. Then come back and talk to me for a rematch."']);
+    }
+  },{rival:'Veteran Kitty'}); };
+  no.onclick=()=>{ closeModal(); };
+}
+// ----- ramen + vending -----
+function ramenMenu(){
+  const body=openModal('INU RAMEN 🍜','ラーメン • いぬ!');
+  body.appendChild(Object.assign(document.createElement('p'),{innerHTML:'<b>Pochi:</b> "WAN! Welcome to INU RAMEN! Dogs cook it, witches eat it! Rules are rules!"<br><b>Hachi:</b> "Wan wan! (He says the pork broth took 14 hours.)"'}));
+  const row=document.createElement('div');
+  const buy=_btn(`🍜 RAMEN — 5Ⓜ (hunger → 100%, now ${Math.floor(hunger)}%)`);
+  buy.style.width='100%'; buy.style.marginTop='6px';
+  buy.onclick=()=>{
+    if(meowllars<5){ sfx('hit'); toast('Not enough Meowllars! Raccoons carry cash... 🦝'); return; }
+    addMeow(-5); hunger=100; sfx('slurp'); refreshHUD(); closeModal();
+    toast('🍜 Slurped! Hunger 100%! Dogs bark approvingly! WAN!');
+    log('Ate ramen. Hunger full!');
+  };
+  const lv=_btn('Leave','pink'); lv.style.width='100%'; lv.style.marginTop='6px'; lv.onclick=closeModal;
+  row.appendChild(buy); row.appendChild(lv); body.appendChild(row);
+}
+function vendMenu(){
+  const body=openModal('VENDING MACHINE','じはんき • かう!');
+  const p=document.createElement('p');
+  p.innerHTML='The machine hums a lonely 2AM song. Something glows inside...';
+  body.appendChild(p);
+  const mk=(label,can,fn)=>{
+    const b=_btn(label); b.style.width='100%'; b.style.marginTop='6px'; b.disabled=!can;
+    b.onclick=fn; body.appendChild(b);
+  };
+  mk(`🥤 MILK SODA — 2Ⓜ (+40% hunger)${meowllars<2?' [broke]':''}`,meowllars>=2,()=>{
+    addMeow(-2); hunger=Math.min(100,hunger+40); sfx('gulp'); refreshHUD(); closeModal(); toast('🥤 Fizzy milk?! +40% hunger. Somehow good.'); });
+  mk(`🍙 ONIGIRI — 3Ⓜ (+50% hunger)${meowllars<3?' [broke]':''}`,meowllars>=3,()=>{
+    addMeow(-3); hunger=Math.min(100,hunger+50); sfx('gulp'); refreshHUD(); closeModal(); toast('🍙 Tuna-mayo triangle acquired! +50% hunger.'); });
+  const lv=_btn('Walk away','pink'); lv.style.width='100%'; lv.style.marginTop='6px'; lv.onclick=closeModal; body.appendChild(lv);
+}
+function goFishing(){
+  fishingGame(win=>{
+    closeModal();
+    if(win){
+      fish++; refreshHUD(); sfx('coin');
+      toast(`🐟 Caught one! Totally normal pond fish. (Fish: ${fish})`);
+      log(`Caught a fish! Total: ${fish}`);
+    } else {
+      toast('The pond keeps its secrets. This time.');
+    }
+  });
+}
+function meetHollow(){
+  if(fish<=0){
+    sfx('hit');
+    showDialogue('Hollow 🍽',[
+      '"...is that... no fish? NO FISH?!"',
+      '"Look at this bowl. EMPTY. I have counted every speck of dust in it. Twice."',
+      '"Come back with a fish from the pond — you know, the one that is DEFINITELY not a fishing minigame — or don\'t come back. Shoo!"',
+    ]);
+    return;
+  }
+  const body=openModal('HOLLOW IS STARVING','はらぺこ • えさ!');
+  const p=document.createElement('p');
+  p.innerHTML=`Hollow stares at your <b>${fish} fish</b> the way poets stare at the moon.<br>Offer <b>1 fish</b> for a feeding game? Land it in the mouth (<b>3 throws, need 1</b>) for <b>+10 cat-gang standing</b>! 🐟`;
+  body.appendChild(p);
+  const go=_btn(`THROW A FISH 🐟 (have ${fish})`); go.style.width='100%'; go.style.marginTop='6px';
+  const no=_btn('Not yet','pink'); no.style.width='100%'; no.style.marginTop='6px';
+  go.onclick=()=>{
+    fish--; refreshHUD();
+    feedingGame(win=>{
+      if(win){
+        addStanding(10); refreshHUD(); sfx('quest');
+        showDialogue('Hollow 🍽',['"...!! ...crunch crunch crunch..."','"Okay. OKAY. That was... adequate. The gang will hear of this generosity."',`<i>(+10 standing! Hollow licks the bowl for 40 minutes. Now: ${standing})</i>`]);
+        log('Fed Hollow! +10 standing!');
+      } else {
+        showDialogue('Hollow 🍽',['"The fish is on the GROUND. It lives there now."','"No standing. The bowl remains a metaphor. Bring another fish and redeem yourself."']);
+      }
+    });
+  };
+  no.onclick=closeModal;
+  body.appendChild(go); body.appendChild(no);
+}
+// ----- raccoons -----
+function fightRaccoon(rc){
+  const body=openModal('RACCOON AMBUSH!','あらいぐま • たたかい!');
+  body.appendChild(Object.assign(document.createElement('p'),{innerHTML:'A trash-panda burst from the shadows, pockets full of YOUR snacks!<br>"Heh heh heh... let\'s DANCE, witch." 🦝'}));
+  const go=_btn('THROW DOWN 👊'); go.style.width='100%'; go.style.marginTop='8px';
+  const run=_btn('Back away slowly','pink'); run.style.width='100%'; run.style.marginTop='6px';
+  go.onclick=()=>{
+    raccoonFight(win=>{
+      if(win){
+        rc.hiddenUntil=nowSec*1000+120000;
+        if(questStage>=2){
+          addStanding(5); addMeow(5); sfx('coin'); refreshHUD();
+          showDialogue('Raccoon',['"Okay okay!! Take your snacks back! And... uh... here, gang respects strength. Tell no one."',`<i>(+5 standing, +5Ⓜ Meowllars! It respawns in 2 minutes. Now: ${standing} standing, ${meowllars}Ⓜ)</i>`]);
+          log('Beat a raccoon! +5 standing +5M!');
+        } else {
+          sfx('lose'); refreshHUD();
+          showDialogue('Raccoon',['"Not bad, kid! Real scrappy!"','"BUT. Payouts are for GANG MEMBERS ONLY. Join the cat gang at NEKO PUB first — then every raccoon you beat pays +5 standing and +5Ⓜ. Scram!"']);
+          log('Beat a raccoon, but no payout — not gang yet!');
+        }
+      } else {
+        sfx('lose');
+        showDialogue('Raccoon',['"HA! Better luck next trash day, witch!"','<i>(It scampers off with your dignity. It\'ll be back in the same spot... it always comes back.)</i>']);
+      }
+    });
+  };
+  run.onclick=closeModal;
+  body.appendChild(go); body.appendChild(run);
+}
+// ----- boss -----
+function talkBoss(){
+  const body=openModal('EVIL NYANNER','ボス • さばき!');
+  const img=document.createElement('img');
+  img.src='judge-cat.png'; img.alt='Evil Nyanner';
+  img.style.cssText='width:220px;display:block;margin:0 auto;border:4px solid #0a0514;box-shadow:6px 6px 0 #000;background:#fff';
+  img.onerror=()=>{ img.style.display='none'; const f=document.createElement('div'); f.style.fontSize='90px'; f.style.textAlign='center'; f.textContent='🐈'; body.prepend(f); };
+  body.appendChild(img);
+  const p=document.createElement('p');
+  p.innerHTML='<b>Evil Nyanner:</b> "So. The braincell collector crawls into MY alley. With MY runaway fan club."<br>"Three trials. Pong. Paws. REQUIEM. Win them all... or feed my legend."';
+  body.appendChild(p);
+  const go=_btn('FIGHT THE OVERLORD ⚔️'); go.style.width='100%'; go.style.marginTop='8px';
+  const no=_btn('Not yet...','pink'); no.style.width='100%'; no.style.marginTop='6px';
+  go.onclick=()=>{
+    bossChain(win=>{
+      if(win){ winGame(); }
+      else {
+        hunger=hunger*0.3;
+        const stolen=Math.ceil(meowllars/2); addMeow(-stolen);
+        sfx('lose'); refreshHUD();
+        if(hunger<=0){ hunger=0; die(); return; }
+        showDialogue('Evil Nyanner',['"Pathetic. I\'ll take 70% of your lunch and HALF your coins for my trouble."',`<i>(-${stolen}Ⓜ, hunger devastated. Talk to him to retry!)</i>`]);
+      }
+    });
+  };
+  no.onclick=closeModal;
+  body.appendChild(go); body.appendChild(no);
+}
+let returnPos=null;
+function enterMap(m,x,y,dir,toastMsg,logMsg){
+  returnPos={x:player.x,y:player.y};
+  inMap=m; player.x=x*TILE; player.y=y*TILE; player.dir=dir||'up';
+  setMusicMode(locMusic());
+  toast(toastMsg); log(logMsg); sfx('pickup');
+}
+function talkPatron(pt){ showDialogue(pt.name+' 🍶',[pt.line,'<i>(The pub regulars nod at you with great respect and zero coordination.)</i>']); }
+function talkClerk(){
+  showDialogue('Clerk Kon 💻',[
+    '"Welcome to NET CAFE 24H! Free PC, middle row, green screen. Can\'t miss it."',
+    `"Word on the street: some witch named Mowskito keeps climbing our typing ranks... ${typingWins>0?`YOU have ${typingWins} win(s) already?! The regulars are FURIOUS.`:'No wins yet. The leaderboard yawns.'}"`,
+  ]);
+}
+const RACERS=[{wpm:40,npc:'Slowpoke Sota'},{wpm:60,npc:'Office Oka'},{wpm:80,npc:'Turbo Tamaki'},{wpm:100,npc:'The Nyanner Fan'}];
+function computerMenu(){
+  const body=openModal('FREE PC — TYPING RACE','ネット • 勝負!');
+  const p=document.createElement('p');
+  p.innerHTML=`The CRT hums. A sticky note reads <i>"MOWSKITO WUZ HERE (typing gets better every day, news is spreading!)"</i><br>Your cafe record: <b>${typingWins} win(s)</b>. Pick your victim: 💻`;
+  body.appendChild(p);
+  for(const r of RACERS){
+    const b=_btn(`⌨️ ${r.npc} — ${r.wpm} WPM`); b.style.width='100%'; b.style.marginTop='6px';
+    b.onclick=()=>{
+      typingRace(win=>{
+        if(win){
+          typingWins++; addMeow(3); refreshHUD(); sfx('coin');
+          showDialogue('Free PC',[`"${r.npc} stares at your time, then slowly closes the laptop."`,`<i>(+3Ⓜ! ${typingWins} win(s) total — the news of Mowskito's typing spreads across town!)</i>`]);
+          log(`Won a typing race vs ${r.npc}!`);
+        } else {
+          showDialogue('Free PC',[`"${r.npc} leans back, arms crossed. 'Cute. Come back when your fingers evolve.'"`,`<i>(No prize. The CRT flickers judgmentally.)</i>`]);
+        }
+      },{wpm:r.wpm,npc:r.npc});
+    };
+    body.appendChild(b);
+  }
+  const lv=_btn('Log off','pink'); lv.style.width='100%'; lv.style.marginTop='6px'; lv.onclick=closeModal; body.appendChild(lv);
+}
+function exitMap(){
+  inMap=null;
+  if(returnPos){ player.x=returnPos.x; player.y=returnPos.y+22; }
+  player.dir='down';
+  setMusicMode(locMusic());
+  toast('🌃 Back outside. The night smells like rain and karaoke.'); sfx('pickup');
+}
+function exitPub(){
+  exitMap();
+}
+
+// ---------- DEATH & ENDING ----------
+function die(){
+  if(dead||won) return; dead=true;
+  for(const k in keys)keys[k]=false;
+  setMusicMode('sad');
+  const v=document.getElementById('death'); v.classList.remove('hidden');
+  document.getElementById('death-stats').textContent=`Survived with ${standing} standing and ${meowllars}Ⓜ Meowllars. The cats hold a tiny funeral. There are tiny sandwiches.`;
+  log('STARVED! 死亡!');
+  syncAudioFlags();
+}
+function winGame(){
+  if(won) return; won=true; questStage=4;
+  for(const k in keys)keys[k]=false;
+  closeModal(); setMusicMode('sad');
+  document.getElementById('final-stats').textContent=`Standing ${standing} • ${meowllars}Ⓜ Meowllars • Hunger ${Math.ceil(hunger)}%`;
+  document.getElementById('victory').classList.remove('hidden');
+  sfx('win'); log('BOSS DOWN! 勝利!');
+  syncAudioFlags();
+}
+function resetGame(){
+  closeModal();
+  document.getElementById('quest-banner').classList.add('hidden');
+  hunger=100; meowllars=8; standing=0; questStage=0; nowSec=0; fish=0; typingWins=0;
+  dead=false; won=false; inMap=null; bossSpawned=false; typingWins=0;
+  player.x=27*TILE; player.y=21*TILE; player.dir='down'; player.immuneUntil=0;
+  spawnNPCs();
+  document.getElementById('death').classList.add('hidden');
+  document.getElementById('victory').classList.add('hidden');
+  paused=false; modalOpen=false; setMusicMode('field'); syncAudioFlags(); refreshHUD();
+  log('New life in town! はじめ!');
+  toast('🌃 Fresh night. Find the NEKO PUB, west side!');
+}
+
+// ---------- RENDER ----------
+let mmTick = 0;
+function drawMinimapThrottled(){ mmTick++; if(mmTick%20===0) drawMinimap(); }
+function drawMinimap(){
+  const w=minimap.width=220, h=minimap.height=220;
+  mctx.fillStyle='#0d0618'; mctx.fillRect(0,0,w,h);
+  if(inMap){
+    mctx.fillStyle=inMap==='cafe'?'#141428':'#3a2818'; mctx.fillRect(10,10,w-20,h-20);
+    mctx.fillStyle='#ffd93d'; mctx.font='10px monospace';
+    mctx.fillText(inMap==='cafe'?'NET CAFE':'NEKO PUB',20,30);
+    mctx.fillStyle='#ff9ed2'; mctx.fillRect(100,40,10,10);
+    mctx.fillStyle='#7bffef'; mctx.fillRect(100,170,10,10);
+    return;
+  }
+  const sx=w/TW, sy=h/TH;
+  for(let y=0;y<TH;y++) for(let x=0;x<TW;x++){
+    const v=ground[y][x];
+    mctx.fillStyle=v===1?'#3a3a48':(v===2?'#55555f':(v===3?'#4a3b28':'#1d2b1d'));
+    mctx.fillRect(x*sx,y*sy,Math.ceil(sx),Math.ceil(sy));
+  }
+  mctx.fillStyle='#ff8c42';
+  for(const b of buildings) mctx.fillRect(b.x/TILE*sx-1,b.y/TILE*sy-1,Math.max(2,b.w/TILE*sx),Math.max(2,b.h/TILE*sy));
+  mctx.fillStyle='#7bff9e';
+  for(const m of machines) mctx.fillRect(m.x/TILE*sx-1,m.y/TILE*sy-1,3,3);
+  mctx.fillStyle='#ffd93d';
+  for(const r of raccoons){ if(nowSec*1000<r.hiddenUntil)continue; mctx.fillRect(r.x/TILE*sx-1,r.y/TILE*sy-1,3,3); }
+  if(boss){ mctx.fillStyle='#ff0f3b'; mctx.fillRect(boss.x/TILE*sx-2,boss.y/TILE*sy-2,6,6); }
+  mctx.fillStyle='#fff'; mctx.fillRect(player.x/TILE*sx-1,player.y/TILE*sy-1,4,4);
+}
+function spawnHearts(x,y,n){
+  // kept tiny for cop-catch sparkle reuse
+  for(let i=0;i<n;i++) parts.push({x,y,vx:(Math.random()-.5)*90,vy:-40-Math.random()*80,life:1+Math.random(),color:'#ff9ed2'});
+}
+let parts=[];
+function render(){
+  const r=canvas.getBoundingClientRect();
+  const W=Math.max(320,Math.floor(r.width)), H=Math.max(240,Math.floor(r.height));
+  if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  const warm=[]; const nowT=Date.now();
+  if(!inMap){
+    ctx.fillStyle='#141f16'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    const mw=TW*TILE, mh=TH*TILE;
+    const x0=Math.max(0,Math.floor(cam.x/TILE)-1), y0=Math.max(0,Math.floor(cam.y/TILE)-1);
+    const x1=Math.min(TW-1,Math.ceil((cam.x+canvas.width)/TILE)+1), y1=Math.min(TH-1,Math.ceil((cam.y+canvas.height)/TILE)+1);
+    for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
+      const sx2=Math.floor(tx*TILE-cam.x), sy2=Math.floor(ty*TILE-cam.y);
+      drawGround(ctx,sx2,sy2,tx,ty,ground[ty][tx]);
+      if(ground[ty][tx]===1&&hash2(tx*5+1,ty*5+3)>0.965) warm.push({x:sx2+34,y:sy2+30,r:95,color:'255,154,61'});
+    }
+    // power poles + sagging wires (peak 2000s streetscape)
+    ctx.strokeStyle='rgba(10,10,16,.9)'; ctx.lineWidth=2;
+    for(let i=0;i<poles.length-1;i++){
+      const a=poles[i], b=poles[i+1];
+      if(Math.abs(a.y-b.y)<4&&Math.abs(a.x-b.x)<500){
+        const ax=a.x-cam.x, ay=a.y-46-cam.y, bx=b.x-cam.x, by=b.y-46-cam.y;
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.quadraticCurveTo((ax+bx)/2,Math.max(ay,by)+16,bx,by); ctx.stroke();
+      }
+    }
+    for(const p of poles){
+      const px2=p.x-cam.x, py2=p.y-cam.y;
+      ctx.fillStyle='#241a12'; ctx.fillRect(px2-3,py2-50,6,60);
+      ctx.fillStyle='#33241a'; ctx.fillRect(px2-14,py2-48,28,4);
+    }
+    for(const s of signs){ if(s.x-cam.x<-60||s.x-cam.x>canvas.width+60)continue; drawSign(ctx,{x:s.x-cam.x,y:s.y-cam.y,text:s.text,jp:s.jp}); }
+    for(const b of buildings){
+      if(b.x-cam.x+b.w<-50||b.x-cam.x>canvas.width+50||b.y-cam.y+b.h<-50||b.y-cam.y>canvas.height+50)continue;
+      drawBuilding(ctx,{x:b.x-cam.x,y:b.y-cam.y,w:b.w,h:b.h,kind:b.kind,name:b.name,jp:b.jp,awning:b.awning,roof:b.roof});
+    }
+    // boss alley graffiti
+    {
+      const gx=50*TILE-cam.x, gy=37.4*TILE-cam.y;
+      if(gx>-200&&gx<canvas.width+200){
+        ctx.fillStyle='#1a1a24'; ctx.fillRect(gx-60,gy-24,220,40);
+        ctx.fillStyle='#ff0f5a'; ctx.font='bold 15px monospace'; ctx.textAlign='left';
+        ctx.fillText('NYANNER WAS HERE',gx-50,gy+2);
+        ctx.fillStyle='#35e0e6'; ctx.font='10px monospace'; ctx.fillText('裏 • にゃん',gx+110,gy+2);
+        for(let i=0;i<3;i++){ ctx.fillStyle=`rgba(255,150,40,${.5+.3*Math.sin(nowT/400+i*2)})`; ctx.fillRect(gx-40+i*70,gy-14,5,10); }
+      }
+    }
+    for(const m of machines){
+      const mx=m.x-cam.x, my=m.y-cam.y;
+      if(mx<-40||mx>canvas.width+40)continue;
+      drawVending(ctx,{x:mx,y:my});
+      warm.push({x:mx,y:my-8,r:80,color:'140,220,255'});
+    }
+    for(const l of lamps){
+      const lx=l.x-cam.x, ly=l.y-cam.y;
+      if(lx<-50||lx>canvas.width+50||ly<-70||ly>canvas.height+50)continue;
+      drawLamp(ctx,lx,ly);
+      warm.push({x:lx+8,y:ly-34,r:125,color:'255,220,150'});
+    }
+    drawMailbox(ctx,35.7*TILE-cam.x,21.2*TILE-cam.y); // koban mailbox 〒
+    for(const p of PONDS){
+      const r=pondRectPx(p), px2=r.x-cam.x, py2=r.y-cam.y;
+      if(px2<-320||py2<-240||px2>canvas.width+320||py2>canvas.height+240)continue;
+      drawPond(ctx,px2,py2,r.w,r.h);
+      warm.push({x:px2+r.w/2,y:py2+r.h/2,r:110,color:'140,200,255'});
+    }
+    drawPondSign(ctx,POND_SIGN.x-cam.x,POND_SIGN.y-cam.y);
+    for(const s of strays) drawCat(ctx,s.x-cam.x,s.y-cam.y,s.color,false);
+    for(const rc of raccoons){ if(nowSec*1000<rc.hiddenUntil)continue; drawRaccoon(ctx,rc.x-cam.x,rc.y-cam.y); }
+    if(hollow) drawHollow(ctx,hollow.x-cam.x,hollow.y-cam.y);
+    for(const d of dogs) drawDog(ctx,d.x-cam.x,d.y-cam.y,d.color);
+    for(const c of cops) drawCop(ctx,c.x-cam.x,c.y-cam.y,c.name);
+    for(const gd of guards) drawCat(ctx,gd.x-cam.x,gd.y-cam.y,gd.color,false);
+    if(boss) drawBossCat(ctx,boss.x-cam.x,boss.y-cam.y);
+    drawPumpkin(ctx,27*TILE-cam.x,20.2*TILE-cam.y,false);
+    warm.push({x:27*TILE-cam.x,y:20.2*TILE-cam.y,r:90,color:'255,154,61'});
+    // doors hint
+    ctx.fillStyle='#ffd93d'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    for(const d of doors){ ctx.fillText('▼ '+d.label,d.x-cam.x,d.y-cam.y-34); }
+    // vending markers — obviously interactable
+    const vbob=Math.sin(nowT/350)*3;
+    for(const m of machines){
+      const mx=m.x-cam.x, my=m.y-cam.y-40+vbob;
+      ctx.fillStyle='#0e0a14'; ctx.fillRect(mx-44,my-12,88,15);
+      ctx.fillStyle='#7bff9e'; ctx.fillText('▼ SODA • ONIGIRI ▼',mx,my);
+    }
+    if(hollow){ ctx.fillStyle='#ff9ed2'; ctx.fillText('▼ ...food?...',hollow.x-cam.x,hollow.y-cam.y-30+vbob); }
+  } else if(inMap==='pub'){
+    // ---- pub interior: sleazy but loved ----
+    ctx.fillStyle='#241610'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    const x0=Math.max(0,Math.floor(cam.x/TILE)-1), y0=Math.max(0,Math.floor(cam.y/TILE)-1);
+    const x1=Math.min(21,Math.ceil((cam.x+canvas.width)/TILE)+1), y1=Math.min(13,Math.ceil((cam.y+canvas.height)/TILE)+1);
+    for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++) drawPubInterior(ctx,Math.floor(tx*TILE-cam.x),Math.floor(ty*TILE-cam.y),tx,ty);
+    // tatami corner (the one clean spot)
+    ctx.fillStyle='#4a5a3a'; ctx.fillRect(17*TILE-cam.x,10*TILE-cam.y,4*TILE,3*TILE);
+    ctx.fillStyle='#5a6a48'; for(let i=0;i<4;i++) ctx.fillRect((17+i)*TILE-cam.x,10*TILE-cam.y,3,3*TILE);
+    // posters on the back wall
+    const posters=[{x:3,c:'#ff5a5a',t:'MILK!'},{x:7,c:'#35e0e6',t:'LIVE'},{x:13,c:'#c9a7ff',t:'WANTED'},{x:17,c:'#ffd93d',t:'祭'}];
+    for(const p of posters){
+      const px2=p.x*TILE-cam.x;
+      ctx.fillStyle='#0e0a14'; ctx.fillRect(px2,8-cam.y,34,44);
+      ctx.fillStyle=p.c; ctx.fillRect(px2+2,10-cam.y,30,40);
+      ctx.fillStyle='#0e0a14'; ctx.font='bold 10px monospace'; ctx.textAlign='center'; ctx.fillText(p.t,px2+17,32-cam.y);
+    }
+    if(hash2(3,7)>0.3){ ctx.fillStyle='#0e0a14'; ctx.font='8px monospace'; ctx.textAlign='center'; ctx.fillText('RACCOON: ¥500',15.5*TILE-cam.x,44-cam.y); }
+    // counter + bottles + cups
+    ctx.fillStyle='#4a2c14'; ctx.fillRect(2*TILE-cam.x,0*TILE-cam.y,18*TILE,2*TILE);
+    ctx.fillStyle='#6b4423'; ctx.fillRect(2*TILE-cam.x,0*TILE-cam.y,18*TILE,8);
+    for(let i=0;i<6;i++){ ctx.fillStyle=i%2?'#3a6a8a':'#8a6a3e'; ctx.fillRect((3+i*3)*TILE-cam.x,10-cam.y,20,26); }
+    ctx.fillStyle='#e8e0d0'; for(let i=0;i<5;i++) ctx.fillRect((4+i*3.4)*TILE-cam.x,2.4*TILE-cam.y,10,8); // cups on counter
+    // furniture
+    for(const s of interiors.pub.solids){
+      if(s.w>=22*TILE||s.h>=14*TILE)continue;
+      const sx2=s.x-cam.x, sy2=s.y-cam.y;
+      if(s.x===0||s.x===21*TILE){ ctx.fillStyle='#5a3a1a'; ctx.fillRect(sx2,sy2,s.w,s.h); ctx.fillStyle='#7a5228'; ctx.fillRect(sx2+4,sy2+6,s.w-8,10); continue; } // barrels
+      if(s.x===18*TILE){ // jukebox!
+        const fl=.6+.4*Math.sin(nowT/300);
+        ctx.fillStyle=`rgba(255,80,180,${.25*fl})`; ctx.fillRect(sx2-8,sy2-8,s.w+16,s.h+16);
+        ctx.fillStyle='#c9188a'; ctx.fillRect(sx2,sy2,s.w,s.h);
+        ctx.fillStyle='#ffd93d'; ctx.fillRect(sx2+8,sy2+8,s.w-16,14);
+        ctx.fillStyle='#0e0a14'; ctx.font='bold 9px monospace'; ctx.textAlign='center'; ctx.fillText('♪',sx2+s.w/2,sy2+20);
+        warm.push({x:sx2+s.w/2,y:sy2+s.h/2,r:70,color:'255,80,180'});
+        continue;
+      }
+      ctx.fillStyle='#5a3a1a'; ctx.fillRect(sx2,sy2,s.w,s.h);
+      ctx.fillStyle='#7a5228'; ctx.fillRect(sx2,sy2,s.w,5);
+      if(s.y===6*TILE){ ctx.fillStyle='#e8e0d0'; ctx.fillRect(sx2+14,sy2+14,12,8); ctx.fillRect(sx2+s.w-30,sy2+20,12,8); } // cups on tables
+    }
+    // dartboard nook (right wall)
+    {
+      const dx=21*TILE-cam.x, dy=9.6*TILE-cam.y;
+      ctx.fillStyle='#e8e0d0'; ctx.fillRect(dx-16,dy-16,24,32);
+      ctx.fillStyle='#c9184a'; ctx.fillRect(dx-12,dy-12,16,24);
+      ctx.fillStyle='#e8e0d0'; ctx.fillRect(dx-8,dy-6,8,12);
+      ctx.fillStyle='#c9184a'; ctx.fillRect(dx-5,dy-2,3,4);
+    }
+    // hanging lamps
+    for(const lx of [5,11,17]){
+      const x=lx*TILE-cam.x;
+      ctx.fillStyle='#2b1b14'; ctx.fillRect(x,40-cam.y,3,30);
+      const fl=.7+.3*Math.sin(nowT/350+lx);
+      ctx.fillStyle=`rgba(255,180,100,${.2*fl})`; ctx.fillRect(x-30,70-cam.y,60,50);
+      ctx.fillStyle='#ff9a3d'; ctx.fillRect(x-7,70-cam.y,14,18);
+      warm.push({x,y:88-cam.y,r:110,color:'255,170,80'});
+    }
+    for(const pt of patrons) drawCat(ctx,pt.x-cam.x,pt.y-cam.y,pt.color,false);
+    drawCat(ctx,veteran.x-cam.x,veteran.y-cam.y,veteran.color,true);
+    drawVeteran(ctx,veteran.x-cam.x,veteran.y-cam.y);
+    ctx.fillStyle='#7bffef'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    ctx.fillText('▼ EXIT',11*TILE-cam.x,13.2*TILE-cam.y);
+  } else {
+    // ---- net cafe interior: hum of a hundred CRTs ----
+    ctx.fillStyle='#0b0b18'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    const x0=Math.max(0,Math.floor(cam.x/TILE)-1), y0=Math.max(0,Math.floor(cam.y/TILE)-1);
+    const x1=Math.min(19,Math.ceil((cam.x+canvas.width)/TILE)+1), y1=Math.min(11,Math.ceil((cam.y+canvas.height)/TILE)+1);
+    for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++) drawCafeFloor(ctx,Math.floor(tx*TILE-cam.x),Math.floor(ty*TILE-cam.y),tx,ty);
+    // LED ceiling strips
+    for(const ly of [2,6,9]){
+      const y=ly*TILE-cam.y;
+      ctx.fillStyle=`rgba(53,224,230,${.25+.1*Math.sin(nowT/500+ly)})`; ctx.fillRect(0,y,canvas.width,4);
+    }
+    // clerk counter
+    ctx.fillStyle='#23233a'; ctx.fillRect(14*TILE-cam.x,0*TILE-cam.y,6*TILE,1*TILE);
+    ctx.fillStyle='#35e0e6'; ctx.fillRect(14*TILE-cam.x,0*TILE-cam.y,6*TILE,4);
+    ctx.fillStyle='#0e0a14'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    ctx.fillText('受付 COUNTER',17*TILE-cam.x,14-cam.y+1*TILE);
+    drawCat(ctx,clerk.x-cam.x,clerk.y-cam.y,clerk.color,false);
+    // PC desks + monitors (free PC glows green at x=10)
+    for(const ry of [4,7]){
+      const dy=ry*TILE-cam.y;
+      ctx.fillStyle='#23233a'; ctx.fillRect(3*TILE-cam.x,dy,14*TILE,1*TILE);
+      for(let dx=4;dx<=16;dx+=2){
+        const mx=dx*TILE-cam.x, free=(dx===10&&ry===4);
+        ctx.fillStyle='#0e0a14'; ctx.fillRect(mx,dy-24,30,26);
+        const cols=['#35e0e6','#7bffef','#c9a7ff','#ffd93d','#ff9ed2'];
+        ctx.fillStyle=free?'#7bff9e':cols[(dx+ry)%5];
+        ctx.fillRect(mx+2,dy-22,26,18);
+        ctx.fillStyle='rgba(255,255,255,.55)'; ctx.fillRect(mx+4,dy-20,18,3);
+        ctx.fillStyle='#0e0a14'; ctx.fillRect(mx+12,dy+2,6,8); // stand
+        if(free){
+          ctx.fillStyle='#0e0a14'; ctx.font='bold 9px monospace'; ctx.textAlign='center';
+          ctx.fillText('FREE! 使える',mx+15,dy-28);
+          warm.push({x:mx+15,y:dy-10,r:80,color:'123,255,158'});
+        } else warm.push({x:mx+15,y:dy-10,r:46,color:'53,224,230'});
+      }
+    }
+    // snack shelf
+    ctx.fillStyle='#3a2c14'; ctx.fillRect(1*TILE-cam.x,9*TILE-cam.y,2*TILE,1*TILE);
+    const snk=['#ff5a5a','#ffd93d','#7bff9e','#35e0e6'];
+    for(let i=0;i<4;i++){ ctx.fillStyle=snk[i]; ctx.fillRect((1.2+i*0.4)*TILE-cam.x,9.2*TILE-cam.y,12,20); }
+    ctx.fillStyle='#7bffef'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    ctx.fillText('▼ USE FREE PC',10*TILE-cam.x,5.9*TILE-cam.y);
+    ctx.fillText('▼ EXIT',10*TILE-cam.x,11.2*TILE-cam.y);
+  }
+  drawWitch(ctx,player.x-cam.x,player.y-cam.y,player.dir,player.anim,player.moving);
+  for(const p of parts){ ctx.fillStyle=p.color; ctx.fillRect(p.x-cam.x-2,p.y-cam.y-2,4,4); }
+  // ---- NIGHTFALL ----
   if(lightCv.width!==canvas.width||lightCv.height!==canvas.height){ lightCv.width=canvas.width; lightCv.height=canvas.height; }
   lctx.globalCompositeOperation='source-over';
   lctx.clearRect(0,0,lightCv.width,lightCv.height);
-  lctx.fillStyle='rgba(10,5,26,0.66)'; // halloween night
+  lctx.fillStyle='rgba(10,5,26,0.50)'; // a touch brighter — cozy night, not cave
   lctx.fillRect(0,0,lightCv.width,lightCv.height);
-  lctx.globalCompositeOperation='destination-out'; // punch holes
-  const hole=(x,y,r,a)=>{
-    if(x<-r||y<-r||x>lightCv.width+r||y>lightCv.height+r) return;
-    const gr=lctx.createRadialGradient(x,y,0,x,y,r);
+  lctx.globalCompositeOperation='destination-out';
+  const hole=(x,y,rr,a)=>{
+    if(x<-rr||y<-rr||x>lightCv.width+rr||y>lightCv.height+rr)return;
+    const gr=lctx.createRadialGradient(x,y,0,x,y,rr);
     gr.addColorStop(0,`rgba(255,255,255,${a})`); gr.addColorStop(1,'rgba(255,255,255,0)');
-    lctx.fillStyle=gr; lctx.beginPath(); lctx.arc(x,y,r,0,7); lctx.fill();
+    lctx.fillStyle=gr; lctx.beginPath(); lctx.arc(x,y,rr,0,7); lctx.fill();
   };
-  hole(plx,ply,175,0.95); // Mowzkitow's lantern-light
-  for(const L of warmLights) hole(L.x,L.y,L.r,0.9);
+  hole(player.x-cam.x,player.y-cam.y,205,0.95);
+  for(const L of warm) hole(L.x,L.y,L.r,0.92);
   ctx.drawImage(lightCv,0,0);
-  // warm color wash so lantern light feels orange, stones glow their color
   ctx.globalCompositeOperation='lighter';
-  for(const L of warmLights){
-    if(L.x<-L.r||L.y<-L.r||L.x>canvas.width+L.r||L.y>canvas.height+L.r) continue;
+  for(const L of warm){
+    if(L.x<-L.r||L.y<-L.r||L.x>canvas.width+L.r||L.y>canvas.height+L.r)continue;
     const gr=ctx.createRadialGradient(L.x,L.y,0,L.x,L.y,L.r);
     gr.addColorStop(0,`rgba(${L.color},0.20)`); gr.addColorStop(1,`rgba(${L.color},0)`);
     ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(L.x,L.y,L.r,0,7); ctx.fill();
   }
   ctx.globalCompositeOperation='source-over';
-  // vignette text
   if(!gameStarted) return;
-  ctx.fillStyle='rgba(26,15,46,.85)'; ctx.fillRect(8,8,250,26);
-  ctx.fillStyle='#ffd93d'; ctx.font='12px monospace'; ctx.textAlign='left';
-  ctx.fillText(`🧠 x${braincells}  ✨ ${challengesDone}/${orbs.length}  ⏱ ${fmtTime(elapsed)}`,14,25);
+  ctx.fillStyle='rgba(10,5,26,.88)'; ctx.fillRect(8,8,310,26);
+  ctx.fillStyle='#ffb35c'; ctx.font='12px monospace'; ctx.textAlign='left';
+  const where=inMap?(inMap==='pub'?'🍶PUB':'💻CAFE'):'🌃TOWN';
+  ctx.fillText(`Ⓜ${meowllars}  🐾${standing}  🍖${Math.ceil(Math.max(0,hunger))}%  ${where}`,14,25);
+  // interaction hints
+  ctx.fillStyle='rgba(10,5,26,.7)'; ctx.fillRect(8,canvas.height-28,330,20);
+  ctx.fillStyle='#c9b8ff'; ctx.font='11px monospace';
+  ctx.fillText('[SPACE] talk / fight / buy / enter',14,canvas.height-13);
 }
-function drawMinimap(){
-  const w=minimap.width=220, h=minimap.height=220;
-  mctx.fillStyle='#1a0f2e'; mctx.fillRect(0,0,w,h);
-  const sx=w/COLS, sy=h/ROWS;
-  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
-    mctx.fillStyle=maze[y][x]===1?'#3f7a3a':'#101f18'; // night-tinted minimap
-    mctx.fillRect(x*sx,y*sy,Math.ceil(sx),Math.ceil(sy));
-  }
-  for(const o of orbs){ if(o.done) continue; mctx.fillStyle=(TRIALS[o.type]||TRIALS.riddle).color; mctx.fillRect(o.tx*sx-1,o.ty*sy-1,4,4); }
-  mctx.fillStyle='#fff8d0'; mctx.fillRect((COLS-2)*sx-1,(ROWS-2)*sy-1,5,5);
-  mctx.fillStyle='#ffffff'; mctx.fillRect(Math.floor(player.x/TILE)*sx-1,Math.floor(player.y/TILE)*sy-1,4,4);
-}
-function spawnHearts(x,y,n){
-  const cols=['#ff6fae','#ff0f7b','#ffd93d','#7bffef','#fff'];
-  for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-0.5)*90,vy:-40-Math.random()*80,life:1+Math.random(),color:cols[i%cols.length]});
-}
-function log(msg){
-  const el=document.getElementById('log');
-  const d=document.createElement('div'); d.textContent='> '+msg; el.prepend(d);
-}
-function fmtTime(s){ s=Math.floor(s); const m=Math.floor(s/60); return `${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }
 
-// ---- CHALLENGES ----
-const modal=document.getElementById('challenge-modal');
-const cTitle=document.getElementById('c-title'), cJp=document.getElementById('c-jp'), cBody=document.getElementById('c-body');
-let currentOrb=null;
-const zipSentences=[
-  'Mowzkitow swears this maze is easy and immediately walks into a wall.',
-  'The local vampire witch has one braincell and it is on vacation.',
-  'Cats run the field gift shop and charge three naps per map.',
-  'A wild trial stone appears! Mowzkitow pokes it with a stick.'
-];
-const riddles=[
-  {q:'I am always hungry and must always be fed. The finger I touch soon turns red. What am I?', opts:['Fire','Cat','Water','Mushroom'], a:0},
-  {q:'Mowzkitow has 1 braincell. She trades half of it for a snack, then finds 2 more in the grass. How many now?', opts:['2.5','3','1','0 — a crow took them'], a:1},
-  {q:'What runs through the fields but never walks, has a mouth but never talks?', opts:['A river','A vampire','A broom','A zip path'], a:0},
-  {q:'Which is heavier: 1kg of strawberries or 1kg of feathers?', opts:['Same, obviously','Strawberries','Feathers','The maze'], a:0},
-  {q:'If 3 cats nap for 3 hours in 3 sunny spots, how long does 1 cat nap in 1 spot?', opts:['3 hours','1 hour','9 hours','Until dinner'], a:0},
-  {q:'What number comes next: 1, 1, 2, 3, 5, 8, ...?', opts:['13','12','9','Potato'], a:0},
-];
-const STONE_LABEL={zip:'ZIP PATH',typing:'TYPING',simon:'FOX MEMORY',riddle:'RIDDLE',scramble:'RUNE SCRAMBLE',catch:'CATCH!'};
-function triggerChallenge(orb){
-  if(paused) return;
-  for (const k in keys) keys[k]=false; // don't drift while modal is open
-  currentOrb=orb; paused=true; sfx('hit');
-  // each stone owns its trial — the look tells you what's inside
-  const type = (orb.type && TRIALS[orb.type]) ? orb.type : TRIAL_KEYS[challengesDone % TRIAL_KEYS.length];
-  showChallenge(type);
-  toast(`🪨 ${STONE_LABEL[type]||type} stone! がんばれ!`);
-}
-function showChallenge(type){
-  modal.classList.remove('hidden');
-  cBody.innerHTML='';
-  if(type==='zip') zipChallenge();
-  else if(type==='typing') typingChallenge();
-  else if(type==='simon') simonChallenge();
-  else if(type==='scramble') scrambleChallenge();
-  else if(type==='catch') catchChallenge();
-  else riddleChallenge();
-  document.getElementById('hud-task').textContent=`CHALLENGE: ${type.toUpperCase()}!`;
-}
-// judgment cat: appears on EVERY puzzle fail, vanishes 1s later. Never blocks input.
-let judgeTimer=null;
-function flashJudgeCat(){
-  const el=document.getElementById('judge-flash');
-  if(!el) return;
-  el.classList.remove('hidden');
-  el.style.animation='none'; void el.offsetWidth; el.style.animation=''; // replay pop
-  clearTimeout(judgeTimer);
-  judgeTimer=setTimeout(()=>el.classList.add('hidden'),1000);
-}
-function hideJudgeCat(){ clearTimeout(judgeTimer); const el=document.getElementById('judge-flash'); if(el) el.classList.add('hidden'); }
-(function judgeImgFallback(){
-  const img=document.getElementById('judge-img');
-  if(!img) return;
-  img.onerror=()=>{
-    if(!img.dataset.triedJpg){ img.dataset.triedJpg='1'; img.src='judge-cat.jpg'; }
-    else { img.style.display='none'; const f=document.getElementById('judge-fallback'); if(f) f.style.display='block'; }
+// ---------- FLOW ----------
+function toastStart(){ toast('🌃 Fresh night. Find the NEKO PUB, west side!'); }
+document.getElementById('btn-music').onclick=(e)=>{ musicOn=!musicOn; e.target.textContent=musicOn?'🎵 MUSIC: ON':'🎵 MUSIC: OFF'; initAudio(); if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); };
+document.getElementById('btn-help').onclick=()=>{ document.getElementById('start-overlay').classList.remove('hidden'); paused=true; syncAudioFlags(); };
+document.getElementById('btn-hud').onclick=(e)=>{ document.body.classList.toggle('hud-hidden'); e.target.textContent=document.body.classList.contains('hud-hidden')?'👁 SHOW HUD':'👁 HUD'; };
+document.getElementById('btn-unstuck').onclick=()=>{
+  if(!gameStarted||dead||won||modalOpen) return;
+  const body=openModal('UNSTUCK?!','たすけて!');
+  const p=document.createElement('p');
+  p.innerHTML='<b>NO CHEATING!!!! Only use when actually stuck!!!!</b><br><br>Beam yourself to the middle of the map? (Does NOT restart anything — stats, hunger, quest all stay.) 🛸';
+  body.appendChild(p);
+  const row=document.createElement('div'); row.style.display='flex'; row.style.gap='8px';
+  const yes=_btn('YES, BEAM ME'); yes.style.flex='1';
+  const no=_btn('No, I\'m fine','pink'); no.style.flex='1';
+  row.appendChild(yes); row.appendChild(no); body.appendChild(row);
+  yes.onclick=()=>{
+    for(const k in keys)keys[k]=false;
+    if(inMap){ const IM=interiors[inMap]; player.x=IM.w/2*TILE; player.y=(IM.h/2+1)*TILE; }
+    else { player.x=27.5*TILE; player.y=20.5*TILE; }
+    player.dir='down'; player.immuneUntil=nowSec*1000+3000;
+    closeModal(); sfx('quest'); toast('🛸 Beamed to the middle! No questions asked. ...Suspicious.');
+    log('Used UNSTUCK. The town pretends not to notice.');
   };
-})();
-function closeChallenge(success){
-  modal.classList.add('hidden');
-  hideJudgeCat();
-  paused=false;
-  document.getElementById('hud-task').textContent='Find the Meadow Gate at the far end! 出口を探せ!';
-  if(success && currentOrb){
-    currentOrb.done=true; braincells++; challengesDone++;
-    document.getElementById('hud-brain').textContent=braincells;
-    document.getElementById('hud-done').textContent=`${challengesDone}/${orbs.length}`;
-    sfx('solve'); spawnHearts(player.x,player.y,16);
-    log(`Challenge cleared! Braincell +1 (total ${braincells}) にゃー!`);
-    toast('🧠 BRAINCELL GET! にゃーん! +1');
-  }
-  currentOrb=null;
-}
-// --- ZIP (LinkedIn-style, harder) ---
-function zipChallenge(){
-  cTitle.textContent='BRAINCELL TRIAL: ZIP PATH';
-  cJp.textContent='ジップ パズル • 数字をつなげ!';
-  const info=document.createElement('div');
-  info.innerHTML=`<p><b>How to play (English):</b> Drag from <b>1</b> to fill <b>every square</b> with one continuous path. You must pass the numbers <b>1-6 in order</b>. No diagonals, no revisiting. The solution path winds — dead-ends mean back up and re-route! 🧠🐈</p><p style="background:#2b1b4d;color:#ff9ed2;padding:6px 8px">You seemed to like these so here u gooo &lt;3</p>`;
-  cBody.appendChild(info);
-  const SIZE=6, total=SIZE*SIZE;
-  // Build a HARD guaranteed-solvable puzzle: start from a snake Hamiltonian
-  // path, then scramble it with ~120 "backbite" rewirings. Result still covers
-  // every square exactly once, but winds unpredictably — no more easy snake.
-  let path=[]; for(let r=0;r<SIZE;r++){ if(r%2===0) for(let c=0;c<SIZE;c++) path.push(r*SIZE+c); else for(let c=SIZE-1;c>=0;c--) path.push(r*SIZE+c); }
-  const nbs=i=>{ const r=Math.floor(i/SIZE), c=i%SIZE, o=[];
-    if(r>0)o.push(i-SIZE); if(r<SIZE-1)o.push(i+SIZE); if(c>0)o.push(i-1); if(c<SIZE-1)o.push(i+1); return o; };
-  for(let it=0;it<140;it++){
-    if(Math.random()<0.5) path=[...path].reverse(); // randomize from both ends
-    const end=path[path.length-1];
-    const cands=nbs(end).filter(n=>n!==path[path.length-2] && path.includes(n));
-    if(!cands.length) continue;
-    const join=cands[Math.floor(Math.random()*cands.length)];
-    const k=path.indexOf(join);
-    path=[...path.slice(0,k+1), ...path.slice(k+1).reverse()];
-  }
-  const numCount=6; // more checkpoints = tighter constraints
-  const spots=[0];
-  let last=0;
-  // irregular gaps force real route planning, not just wall-following
-  for(let n=1;n<numCount-1;n++){ last+= 5+Math.floor(Math.random()*4); if(last>=total-2) last=total-3; spots.push(last); }
-  spots.push(total-1);
-  const numAt={}; spots.forEach((idx,i)=>numAt[path[idx]]=i+1);
-  const grid=document.createElement('div'); grid.id='zip-grid';
-  grid.style.gridTemplateColumns=`repeat(${SIZE},1fr)`;
-  grid.style.maxWidth='420px';
-  const cells=[];
-  for(let i=0;i<total;i++){
-    const d=document.createElement('div'); d.className='zip-cell'+(numAt[i]?' num':'');
-    if(numAt[i]) d.textContent=numAt[i];
-    d.dataset.i=i; cells.push(d); grid.appendChild(d);
-  }
-  cBody.appendChild(grid);
-  const msg=document.createElement('p'); cBody.appendChild(msg);
-  const btnRow=document.createElement('div');
-  const reset=document.createElement('button'); reset.className='btn alt'; reset.textContent='RESET ↺';
-  const give=document.createElement('button'); give.className='btn pink'; give.textContent='GIVE UP (retry later)';
-  give.style.marginLeft='8px';
-  btnRow.appendChild(reset); btnRow.appendChild(give); cBody.appendChild(btnRow);
-  let cur=[]; let drawing=false;
-  const rc=i=>({r:Math.floor(i/SIZE),c:i%SIZE});
-  const adj=(a,b)=>{const A=rc(a),B=rc(b);return Math.abs(A.r-B.r)+Math.abs(A.c-B.c)===1;};
-  function paint(){
-    cells.forEach((d,i)=>{ d.classList.remove('path','active-head','path-num-ok'); if(!d.classList.contains('num')) d.textContent=''; });
-    cur.forEach((idx,k)=>{ const d=cells[idx]; d.classList.add('path'); if(numAt[idx]) d.classList.add('path-num-ok'); if(k===cur.length-1) d.classList.add('active-head'); });
-  }
-  function validOrder(){
-    let expect=1;
-    for(const idx of cur){ if(numAt[idx]){ if(numAt[idx]!==expect) return false; expect++; } }
-    // also cannot skip: if we passed 3 without 2 -> caught above; check we don't jump over unseen lower number... above covers
-    return true;
-  }
-  function checkWin(){
-    if(cur.length!==total) return false;
-    let expect=1;
-    for(const idx of cur){ if(numAt[idx]){ if(numAt[idx]!==expect) return false; expect++; } }
-    return expect===numCount+1;
-  }
-  function startAt(i, ev){
-    if(numAt[i]!==1){ msg.textContent='Start from 1! 1からスタート!'; return; }
-    drawing=true; cur=[i]; paint(); if(ev)ev.preventDefault();
-  }
-  function moveTo(i){
-    if(!drawing) return;
-    if(cur.includes(i)){
-      // backtrack
-      const pos=cur.indexOf(i);
-      if(pos===cur.length-2){ cur.pop(); paint(); }
-      return;
-    }
-    if(!adj(cur[cur.length-1],i)) return;
-    cur.push(i); paint();
-    if(!validOrder()){ msg.textContent='Numbers must be in order! 順番通り!'; flashJudgeCat(); }
-    else msg.textContent=`Path: ${cur.length}/${total}`;
-    if(checkWin()){ sfx('win'); closeChallenge(true); }
-  }
-  cells.forEach(d=>{
-    const i=+d.dataset.i;
-    d.addEventListener('pointerdown',e=>{d.setPointerCapture&&e.pointerId!==undefined&&tryCapture(d,e);startAt(i,e);});
-    d.addEventListener('pointerenter',e=>{ if(e.buttons>0) moveTo(i); });
-    d.addEventListener('pointerover',()=>{ if(drawing) moveTo(i); });
-  });
-  function tryCapture(d,e){ try{d.setPointerCapture(e.pointerId);}catch(_){} }
-  grid.addEventListener('pointermove',e=>{
-    if(!drawing) return;
-    const el=document.elementFromPoint(e.clientX,e.clientY);
-    if(el&&el.classList&&el.classList.contains('zip-cell')) moveTo(+el.dataset.i);
-  });
-  window.addEventListener('pointerup',()=>{drawing=false;},{once:false});
-  reset.onclick=()=>{cur=[];drawing=false;paint();msg.textContent='Reset! Try again!';};
-  give.onclick=()=>{ modal.classList.add('hidden'); paused=false; currentOrb=null; log('Zip skipped — orb still waits for you...'); };
-}
-// --- TYPING ---
-function typingChallenge(){
-  cTitle.textContent='BRAINCELL TRIAL: NEKO TYPING';
-  cJp.textContent='タイピング テスト • 猫の速さで!';
-  const target=zipSentences[Math.floor(Math.random()*zipSentences.length)];
-  const info=document.createElement('p');
-  info.innerHTML=`<b>How to play (English):</b> Type the sentence <b>exactly</b> within <b>40 seconds</b>. Caps and punctuation matter. Go, speedy fingers! ⌨️🐾<br>We still gotta work on the typing 💜`;
-  cBody.appendChild(info);
-  const tdiv=document.createElement('div'); tdiv.id='typing-target';
-  target.split('').forEach(ch=>{const s=document.createElement('span');s.textContent=ch;s.className='todo';tdiv.appendChild(s);});
-  cBody.appendChild(tdiv);
-  const area=document.createElement('textarea'); area.id='typing-area'; area.placeholder='Start typing here...'; cBody.appendChild(area);
-  const stat=document.createElement('p'); stat.textContent='Time left: 40s'; cBody.appendChild(stat);
-  const quit=document.createElement('button'); quit.className='btn pink'; quit.textContent='GIVE UP'; cBody.appendChild(quit);
-  quit.onclick=()=>{clearInterval(iv);modal.classList.add('hidden');paused=false;currentOrb=null;};
-  let left=40;
-  const iv=setInterval(()=>{
-    if(modal.classList.contains('hidden')){clearInterval(iv);return;}
-    left-=0.25; stat.textContent=`Time left: ${Math.max(0,left).toFixed(1)}s`;
-    if(left<=0){clearInterval(iv);stat.textContent='Too slow! The cats are laughing! Try again — orb still there.';flashJudgeCat();area.disabled=true;setTimeout(()=>{modal.classList.add('hidden');paused=false;currentOrb=null;},1200);}
-  },250);
-  area.addEventListener('input',()=>{
-    const v=area.value;
-    const spans=tdiv.querySelectorAll('span');
-    spans.forEach((s,i)=>{ s.className = i<v.length ? (v[i]===target[i]?'done':'current') : (i===v.length?'current':'todo'); if(i<v.length&&v[i]!==target[i]) s.style.background='#ff0f3b'; else s.style.background=''; });
-    if(v===target){clearInterval(iv);sfx('win');closeChallenge(true);}
-    else if(v.length>=target.length || (v.length>0 && !target.startsWith(v.slice(0,Math.min(v.length, target.length)) ) && v!==target.slice(0,v.length))){
-      // mark errors but allow backspace; check prefix
-      if(target.slice(0,v.length)!==v){ stat.textContent='Oops! Typo! Fix it with backspace! 間違い!'; flashJudgeCat(); }
-    }
-  });
-  setTimeout(()=>area.focus(),100);
-}
-// --- SIMON / MEMORY ---
-function simonChallenge(){
-  cTitle.textContent='BRAINCELL TRIAL: KITSUNE MEMORY';
-  cJp.textContent='きつね メモリー • 覚えて!';
-  const info=document.createElement('p');
-  info.innerHTML=`<b>How to play (English):</b> Watch the glowing sequence, then repeat the <b>whole thing</b> by clicking. It grows one note per round until <b>6 notes</b>. A mistake replays the same round — no full reset! 🦊✨`;
-  cBody.appendChild(info);
-  const icons=[['🐈','#ffd6e8'],['💖','#ffc2dd'],['⭐','#fff3a3'],['🌙','#c9b8ff']];
-  const LEN=6;
-  const seq=Array.from({length:LEN},()=>Math.floor(Math.random()*4));
-  const grid=document.createElement('div'); grid.className='simon-grid'; cBody.appendChild(grid);
-  const stat=document.createElement('p'); cBody.appendChild(stat);
-  const row=document.createElement('div'); row.style.display='flex'; row.style.gap='8px';
-  const replay=document.createElement('button'); replay.className='btn alt'; replay.textContent='↻ REPLAY';
-  const quit=document.createElement('button'); quit.className='btn pink'; quit.textContent='GIVE UP';
-  row.appendChild(replay); row.appendChild(quit); cBody.appendChild(row);
-  const btns=icons.map(([em,bg],i)=>{
-    const b=document.createElement('div'); b.className='simon-btn'; b.textContent=em; b.style.background=bg; grid.appendChild(b);
-    b.onclick=()=>{ if(!acceptInput) return; flash(i,200); press(i); };
-    return b;
-  });
-  let acceptInput=false, level=1, inputPos=0, showId=0, closed=false;
-  quit.onclick=()=>{ closed=true; showId++; modal.classList.add('hidden'); paused=false; currentOrb=null; };
-  replay.onclick=()=>{ if(closed) return; showId++; show(); };
-  function setLocked(locked){
-    acceptInput=!locked;
-    grid.style.opacity=locked?'0.55':'1';
-    grid.style.pointerEvents=locked?'none':'auto';
-    replay.disabled=locked;
-  }
-  function flash(i,ms){
-    btns[i].classList.add('lit'); playNote([523,659,784,880][i],0.25,'square',0.08);
-    setTimeout(()=>btns[i].classList.remove('lit'),ms);
-  }
-  const wait=ms=>new Promise(r=>setTimeout(r,ms));
-  async function show(){
-    const my=++showId;
-    setLocked(true); inputPos=0;
-    stat.textContent=`Round ${level}/${LEN} — watch... 見て!`;
-    await wait(900);
-    // slow demo: each note glows ~550ms with a clear ~300ms gap
-    for(let k=0;k<level;k++){
-      if(closed || my!==showId) return;
-      flash(seq[k],550);
-      await wait(850);
-    }
-    if(closed || my!==showId) return;
-    setLocked(false);
-    stat.textContent=`Your turn: repeat all ${level} note${level>1?'s':''}! (0/${level}) 真似して!`;
-  }
-  function press(i){
-    if(i===seq[inputPos]){
-      inputPos++;
-      if(inputPos>=level){
-        if(level>=LEN){ sfx('win'); closeChallenge(true); return; }
-        level++; inputPos=0;
-        setLocked(true);
-        stat.textContent='Nice! Adding one more... すごい!';
-        const my=++showId;
-        setTimeout(()=>{ if(!closed && my===showId) show(); },900);
-      } else {
-        stat.textContent=`Your turn: repeat all ${level} notes! (${inputPos}/${level})`;
-      }
-    } else {
-      sfx('hit'); flashJudgeCat();
-      setLocked(true);
-      stat.textContent='Oops — watch again, same round! もう一度見て!';
-      const my=++showId;
-      setTimeout(()=>{ if(!closed && my===showId) show(); },900);
-    }
-  }
-  show();
-}
-// --- RIDDLE ---
-function riddleChallenge(){
-  cTitle.textContent='BRAINCELL TRIAL: FIELD RIDDLE';
-  cJp.textContent='なぞなぞ • 頭を使え!';
-  const r=riddles[Math.floor(Math.random()*riddles.length)];
-  const info=document.createElement('p'); info.innerHTML=`<b>How to play (English):</b> Answer the riddle. A wrong answer just gets laughed at by a crow. Try again! 🐦`;
-  cBody.appendChild(info);
-  const q=document.createElement('h3'); q.textContent='❓ '+r.q; cBody.appendChild(q);
-  r.opts.forEach((o,i)=>{
-    const b=document.createElement('button'); b.className='riddle-opt'; b.textContent=`${'ABCD'[i]}. ${o}`;
-    b.onclick=()=>{ if(i===r.a){ sfx('win'); closeChallenge(true);} else { sfx('hit'); flashJudgeCat(); b.style.background='#ff9aa8'; b.textContent+=' ✘ nope!'; } };
-    cBody.appendChild(b);
-  });
-  const quit=document.createElement('button'); quit.className='btn pink'; quit.textContent='GIVE UP'; quit.style.marginTop='8px'; cBody.appendChild(quit);
-  quit.onclick=()=>{modal.classList.add('hidden');paused=false;currentOrb=null;};
-}
-// --- WORD SCRAMBLE (new) ---
-const scrambleWords=[
-  {w:'VAMPIRE', hint:'Cape enthusiast, avoids garlic bread'},
-  {w:'WITCH', hint:'Broom pilot'},
-  {w:'FOREST', hint:'Lots of trees, easy to get lost in'},
-  {w:'MEADOW', hint:'This field you are standing in'},
-  {w:'BRAINS', hint:'Mowzkitow is collecting these (singular)'},
-  {w:'LANTERN', hint:'Glowy jar on a post'},
-  {w:'PORTAL', hint:'The shiny EXIT thing'},
-  {w:'KITSUNE', hint:'Fox with extra tails and opinions'},
-];
-function scrambleChallenge(){
-  cTitle.textContent='BRAINCELL TRIAL: RUNE SCRAMBLE';
-  cJp.textContent='文字パズル • ならべかえ!';
-  const pick=scrambleWords[Math.floor(Math.random()*scrambleWords.length)];
-  const sh=pick.w.split('').sort(()=>Math.random()-0.5);
-  if(sh.join('')===pick.w){ const t=sh.pop(); sh.unshift(t); }
-  const info=document.createElement('p');
-  info.innerHTML=`<b>How to play (English):</b> Unscramble the magic runes. Hint: <i>${pick.hint}</i>. Type the answer and hit CAST! 🔮`;
-  cBody.appendChild(info);
-  const big=document.createElement('div');
-  big.style.cssText='font-family:monospace;font-size:34px;letter-spacing:8px;background:#2b1b4d;color:#ffd93d;padding:12px;text-align:center;border:3px solid #ffd93d;margin:8px 0';
-  big.textContent=sh.join(' ');
-  cBody.appendChild(big);
-  const row=document.createElement('div'); row.style.display='flex'; row.style.gap='8px';
-  const inp=document.createElement('input');
-  inp.placeholder='Your answer...'; inp.maxLength=12;
-  inp.style.cssText='flex:1;font-size:18px;padding:10px;border:3px solid #2b1b4d;text-transform:uppercase';
-  const go=document.createElement('button'); go.className='btn'; go.textContent='CAST ✨';
-  row.appendChild(inp); row.appendChild(go); cBody.appendChild(row);
-  const msg=document.createElement('p'); cBody.appendChild(msg);
-  const quit=document.createElement('button'); quit.className='btn pink'; quit.textContent='GIVE UP'; quit.style.marginTop='8px'; cBody.appendChild(quit);
-  quit.onclick=()=>{modal.classList.add('hidden');paused=false;currentOrb=null;};
-  function check(){
-    if(inp.value.trim().toUpperCase()===pick.w){ sfx('win'); closeChallenge(true); }
-    else { sfx('hit'); flashJudgeCat(); msg.textContent=`Nope! "${inp.value.trim().toUpperCase()||'…'}" fizzles. The runes giggle. Try again!`; }
-  }
-  go.onclick=check;
-  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') check(); e.stopPropagation(); });
-  setTimeout(()=>inp.focus(),100);
-}
-// --- CATCH THE BRAINCELL (new, action) ---
-function catchChallenge(){
-  cTitle.textContent='BRAINCELL TRIAL: CATCH IT!';
-  cJp.textContent='つかまえろ • ダッシュ!';
-  const info=document.createElement('p');
-  info.innerHTML=`<b>How to play (English):</b> A wild braincell is loose! Click it <b>8 times in 15 seconds</b> before it escapes. It teleports. It mocks you. 🧠💨`;
-  cBody.appendChild(info);
-  const stat=document.createElement('p'); stat.textContent='Caught: 0/8 • 15.0s'; cBody.appendChild(stat);
-  const arena=document.createElement('div');
-  arena.style.cssText='position:relative;height:260px;background:#1a0f2e;border:4px solid #2b1b4d;overflow:hidden;cursor:crosshair';
-  cBody.appendChild(arena);
-  const prey=document.createElement('button');
-  prey.textContent='🧠'; prey.style.cssText='position:absolute;font-size:30px;background:#ffd93d;border:3px solid #2b1b4d;width:52px;height:52px;cursor:pointer;padding:0';
-  arena.appendChild(prey);
-  const quit=document.createElement('button'); quit.className='btn pink'; quit.textContent='GIVE UP'; quit.style.marginTop='8px'; cBody.appendChild(quit);
-  let caught=0, left=15, over=false;
-  function hop(){
-    if(over) return;
-    prey.style.left=Math.random()*(arena.clientWidth-56)+'px';
-    prey.style.top=Math.random()*(arena.clientHeight-56)+'px';
-  }
-  prey.onclick=(e)=>{ e.stopPropagation(); if(over) return; caught++; sfx('pickup'); stat.textContent=`Caught: ${caught}/8 • ${left.toFixed(1)}s`; hop(); if(caught>=8){ over=true; clearInterval(iv); sfx('win'); closeChallenge(true); } };
-  hop();
-  const iv=setInterval(()=>{
-    if(modal.classList.contains('hidden')){ clearInterval(iv); return; }
-    left-=0.25;
-    stat.textContent=`Caught: ${caught}/8 • ${Math.max(0,left).toFixed(1)}s`;
-    if(Math.random()<0.35) hop();
-    if(left<=0 && !over){ over=true; clearInterval(iv); stat.textContent=`It escaped with ${caught}/8! The stone keeps waiting...`; flashJudgeCat(); setTimeout(()=>{ if(!modal.classList.contains('hidden')){ modal.classList.add('hidden'); paused=false; currentOrb=null; } },1200); }
-  },250);
-  quit.onclick=()=>{ clearInterval(iv); modal.classList.add('hidden'); paused=false; currentOrb=null; };
-}
-
-// ---- WIN ----
-function win(){
-  if(gameWon) return; gameWon=true; paused=true; timerOn=false; hideJudgeCat();
-  sfx('win'); setTimeout(()=>sfx('win'),400);
-  document.getElementById('final-time').textContent=fmtTime(elapsed);
-  document.getElementById('final-brain').textContent=braincells;
-  document.getElementById('final-done').textContent=`${challengesDone}/${orbs.length}`;
-  const v=document.getElementById('victory');
-  v.classList.remove('hidden');
-  // confetti spam
-  const layer=document.getElementById('confetti-layer'); layer.innerHTML='';
-  const emojis=['💖','💕','💗','🐈','🐱','🍰','🍓','✨','🌸','👑','🎉','🧠'];
-  for(let i=0;i<90;i++){
-    const s=document.createElement('span'); s.className='confetti';
-    s.textContent=emojis[Math.floor(Math.random()*emojis.length)];
-    s.style.left=Math.random()*100+'%'; s.style.top=(-10-Math.random()*40)+'%';
-    s.style.animationDuration=(2+Math.random()*4)+'s'; s.style.animationDelay=(Math.random()*3)+'s';
-    s.style.fontSize=(14+Math.random()*28)+'px';
-    layer.appendChild(s);
-  }
-  log('ESCAPED! 脱出成功!');
-}
-
-// ---- FLOW ----
-function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none',2200); }
-function restart(){
-  genMaze();
-  player.x=1*TILE+TILE/2; player.y=1*TILE+TILE/2; player.dir='down';
-  braincells=0; challengesDone=0; particles=[]; gameWon=false; paused=false;
-  document.getElementById('hud-brain').textContent='0';
-  document.getElementById('hud-done').textContent=`0/${orbs.length}`;
-  document.getElementById('victory').classList.add('hidden');
-  startTime=Date.now(); timerOn=true;
-  log(`The fields re-grew into a new ${COLS}x${ROWS} maze. Good luck out there!`);
-  toast('🌾 The fields shifted! New maze grown!');
-  drawMinimap();
-}
-document.getElementById('btn-restart').onclick=()=>{restart();};
-document.getElementById('btn-restart2').onclick=()=>{restart();};
-document.getElementById('btn-again').onclick=()=>{restart();};
-document.getElementById('btn-music').onclick=(e)=>{ musicOn=!musicOn; e.target.textContent=musicOn?'🎵 MUSIC: ON':'🎵 MUSIC: OFF'; initAudio(); if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume(); };
-document.getElementById('btn-help').onclick=()=>{ document.getElementById('start-overlay').classList.remove('hidden'); paused=true; };
+  no.onclick=closeModal;
+};
 document.getElementById('btn-start').onclick=()=>{
-  initAudio(); if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+  initAudio(); if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
   startMusic();
   document.getElementById('start-overlay').classList.add('hidden');
-  if(!gameStarted){ gameStarted=true; startTime=Date.now(); timerOn=true; }
-  paused=false;
-  // draw witch preview
-  drawPreview();
-  log('Adventure start! Head for the old Meadow Gate, far corner of the fields!');
+  if(!gameStarted){ gameStarted=true; }
+  paused=false; modalOpen=false; syncAudioFlags();
+  log('New life in town! Speak to the veteran kitty at NEKO PUB!');
+  toastStart();
 };
-function drawPreview(){
-  const c=document.getElementById('witch-preview'); const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
-  c.width=48; c.height=48; g.fillStyle='#ffd6e8'; g.fillRect(0,0,48,48);
-  // reuse drawWitch with temp transform: draw at center
-  const old=ctx; // draw manually small
-  const s=3, ox=0, oy=2;
-  const P=(x,y,w,h,col)=>{g.fillStyle=col;g.fillRect(ox+x*s,oy+y*s,w*s,h*s);};
-  P(3,6,10,8,'#1d1030'); P(5,6,6,5,'#ffe3ec'); P(4,5,8,2,'#1d1030');
-  P(5,8,2,2,'#ff0f3b'); P(9,8,2,2,'#ff0f3b'); P(7,10,1,1,'#fff'); P(8,10,1,1,'#fff');
-  P(3,1,10,2,'#241433'); P(4,0,8,1,'#241433'); P(4,2,8,1,'#7b2ff7'); P(7,2,2,1,'#ffd93d');
-  P(4,11,8,4,'#241433'); P(2,11,2,4,'#c1123b'); P(12,11,2,4,'#c1123b');
-}
-
-// halloween drift bg: petals + bats + ghosts + pumpkins
+document.getElementById('btn-restart2').onclick=()=>{ resetGame(); };
+document.getElementById('btn-again-death').onclick=()=>{ resetGame(); };
+document.getElementById('btn-again-win').onclick=()=>{ resetGame(); };
 (function petals(){
   const layer=document.getElementById('sakura-fall');
-  const set=['🌸','🎃','🦇','👻','💜','✨','🍬'];
+  const set=['🦇','🦇','👻','🎃','💜','🌸','🍬'];
   for(let i=0;i<26;i++){ const s=document.createElement('span'); s.className='petal'; s.textContent=set[i%set.length]; s.style.left=Math.random()*100+'%'; s.style.animationDuration=(5+Math.random()*7)+'s'; s.style.animationDelay=(Math.random()*7)+'s'; layer.appendChild(s); }
 })();
 
-genMaze();
-drawMinimap();
-paused=true; // wait for start
+buildTown(); buildInteriors(); spawnNPCs(); refreshHUD(); drawMinimap(); syncAudioFlags();
+paused=true;
 let last=performance.now();
 function loop(t){
   const dt=Math.min(0.05,(t-last)/1000); last=t;
+  parts=parts.filter(p=>{p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;return p.life>0;});
   update(dt); render();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
-})();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mowzkitow lost braincell challenge</title>
+<title>Mowzkitow: Halloween Town Chapter</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,54 +11,58 @@
 
 <header class="topbar">
   <div class="title-block">
-    <h1>🌸 Mowzkitow lost braincell challenge 🐈‍</h1>
-    <span class="jp-deco">モウズキトウ 脳細胞 チャレンジ • カワイイ迷路 • にゃーん!</span>
-    <div class="subtitle">Get your braincells back pookie</div>
+    <h1>🎃 Mowzkitow: Halloween Town 🐈‍⬛</h1>
+    <span class="jp-deco">モウズキトウ ハロウィン • さくら町 • にゃーん!</span>
+    <div class="subtitle">Chapter 2: open-world 2000s Japanese town — same witch, new braincells 🦇</div>
   </div>
   <div class="hud">
-    <div class="hud-box">🧠 Braincells<br><b id="hud-brain">0</b></div>
-    <div class="hud-box">✨ Trials<br><b id="hud-done">0/10</b></div>
-    <div class="hud-box">⏱ Time<br><b id="hud-time">00:00</b></div>
-    <button class="btn" id="btn-restart">↺ NEW MAZE</button>
+    <div class="hud-box hunger">🍖 Hunger <b id="hud-hunger-num">100</b>
+      <div class="hungerbar"><div id="hud-hunger-fill"></div></div>
+    </div>
+    <div class="hud-box">Ⓜ Meowllars<br><b id="hud-meow">8</b></div>
+    <div class="hud-box">🐾 Standing<br><b id="hud-stand">0</b></div>
+    <div class="hud-box">🐟 Fish<br><b id="hud-fish">0</b></div>
+    <button class="btn" id="btn-unstuck">🛸 UNSTUCK</button>
     <button class="btn alt" id="btn-music">🎵 MUSIC: ON</button>
     <button class="btn pink" id="btn-help">? HELP</button>
+    <button class="btn" id="btn-hud">👁 HUD</button>
   </div>
 </header>
+<div id="quest-strip">🔎 <span id="hud-quest">Speak to the veteran kitty at NEKO PUB (west side)</span></div>
+<div id="quest-banner" class="hidden"></div>
 
 <div id="layout">
   <div id="canvas-wrap">
-    <canvas id="game" width="900" height="640"></canvas>
+    <canvas id="game" width="900" height="600"></canvas>
   </div>
   <div id="side">
     <div class="panel">
-      <h3>🎯 MISSION <span style="float:right">任務</span></h3>
-      <p id="hud-task"><b>Find the Meadow Gate at the far end! 出口を探せ!</b></p>
+      <h3>🎯 CONTROLS <span style="float:right">操作</span></h3>
       <ul>
-        <li><b>Move:</b> WASD / Arrow keys — smooth running, explore freely</li>
-        <li><b>Roam</b> the Whispering Fields — a big open-field maze, new layout every restart</li>
-        <li><b>Touch glowing trial stones ?</b> for mini-trials (zip, typing, memory, riddle, scramble, catch!)</li>
-        <li><b>Reach the old stone gate</b> on the far side to finish!</li>
+        <li><b>Move:</b> WASD / Arrow keys (smooth run)</li>
+        <li><b>SPACE:</b> talk / fight / buy / enter doors</li>
+        <li>Walk into the pub door to enter. Exit mat to leave.</li>
+        <li>Hunger drains always (pauses in menus). Eat or starve!</li>
       </ul>
-      <p style="margin:6px 0 2px 0"><b>Stone guide:</b> each trial has its own look —</p>
-      <ul style="list-style:none;padding-left:4px;margin:2px 0">
-        <li>🟦 <b>ZIP</b> teal path-grid — winding number trail</li>
-        <li>⬜ <b>TYPE</b> cream keys — typing test</li>
-        <li>🟪 <b>FOX</b> 4-color pads — memory</li>
-        <li>🟨 <b>RIDDLE</b> gold ? — riddle</li>
-        <li>🟧 <b>RUNE</b> orange A⇄Z — word scramble</li>
-        <li>🟩 <b>CATCH</b> green 🧠 — catch the braincell</li>
-      </ul>
-      <p style="font-size:13px;margin:4px 0 0 0">Stones stand right on the main trail — most can't be dodged. Same colors on the minimap!</p>
-      <div class="controls-hint">TIP: trial stones are optional, but each one = +1 braincell. (so if u dont collect them u r dumb hehe)</div>
     </div>
     <div class="panel">
-      <h3>🗺 MINIMAP <span style="float:right">地図</span></h3>
+      <h3>🐾 CAT GANG <span style="float:right">猫組</span></h3>
+      <ul>
+        <li>Pet strays: <b>+2</b> (each cat, every 2 min)</li>
+        <li>Beat raccoons: <b>+5</b> &amp; <b>+5Ⓜ</b></li>
+        <li>Ramen 5Ⓜ = full hunger. Soda 2Ⓜ +40%. Onigiri 3Ⓜ +50%.</li>
+        <li>💻 Typing race wins: <b>+3Ⓜ</b> each — the news spreads fast</li>
+        <li>At <b>50 standing</b>: a 3-fish quest for the gang... then the boss calls you out...</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>🗺 TOWN MAP <span style="float:right">地図</span></h3>
       <canvas id="minimap" width="220" height="220"></canvas>
-      <button class="btn" id="btn-restart2" style="width:100%;margin-top:8px">↺ RANDOMIZE MAZE</button>
+      <button class="btn" id="btn-restart2" style="width:100%;margin-top:8px">↺ RESTART NIGHT</button>
     </div>
     <div class="panel">
       <h3>📜 LOG <span style="float:right">日記</span></h3>
-      <div id="log"><div>> Welcome, traveler. Mowzkitow is already lost... 🦇</div></div>
+      <div id="log"><div>> Mowzkitow stumbles into Sakura Town... 🦇</div></div>
     </div>
   </div>
 </div>
@@ -66,55 +70,66 @@
 <!-- START overlay -->
 <div class="overlay" id="start-overlay">
   <div class="card">
-    <span class="jp">モウズキトウ • ヴァンパイア • 魔女 • 開幕!</span>
-    <h2>🌸 Mowzkitow lost braincell challenge 🧠</h2>
-    <div class="witch-show">
-      <canvas id="witch-preview" width="48" height="48"></canvas>
-      <p><b>Story:</b> <b>Mowzkitow</b>, neighborhood vampire witch (self-proclaimed genius, actual braincell count: <b>1</b>), took a shortcut through the <b>Whispering Fields</b> and got hopelessly lost. Wander the meadows, forests and ponds, clear trial stones, and find the <b>old Meadow Gate</b> on the far side. The cats live here. They are not helping (ofc). 🐈🦇</p>
-    </div>
+    <span class="jp">モウズキトウ • 第二章 • ハロウィンの町!</span>
+    <h2>🎃 Mowzkitow: Halloween Town 🐈‍⬛</h2>
+    <p><b>Last time (English):</b> Mowzkitow fought through the forest maze, recovered all <b>10 braincells</b> (+boost strength!), made one villainous enemy — the <b>judging kitty</b> — and befriended the local kitties.</p>
+    <p><b>Now:</b> she wanders into a spooky open-world 2000s Japanese town at night — streets, dark back alleys, shops, strays, raccoons, cops, dogs running a ramen joint... and rumors of a <b>cat gang</b> recruiting at the rundown <b>NEKO PUB</b>.</p>
     <ul>
-      <li>🕹 <b>Controls:</b> WASD or Arrow Keys — smooth running, no grid-hopping</li>
-      <li>🌾 <b>World:</b> a big 31x31 open-field maze, re-grown fresh every restart</li>
-      <li>🧩 <b>Trials:</b> hard ZIP path (winding 1-6!), Fast Typing, Fox Memory, Field Riddle, Rune Scramble, Catch-the-Braincell</li>
-      <li>🌳 <b>Goal:</b> reach the Meadow Gate for the grand finish!</li>
-      <li>🎵 <b>Music:</b> funky gloopy skeleton-funk loop (a Bonetrousle-vibed original) — toggle with MUSIC button</li>
+      <li>🔎 First quest: <b>speak to the veteran kitty</b> at the pub (west side, red lanterns)</li>
+      <li>💻 Side hustle: <b>NET CAFE 24H</b> north side — typing races vs NPCs from 40 to 100 WPM. Winners get 3Ⓜ and town fame</li>
+      <li>🍖 Hunger drains from 100 — eat ramen (5Ⓜ), soda (2Ⓜ), onigiri (3Ⓜ) or starve</li>
+      <li>🐾 Earn cat-gang standing, dodge the cops, survive the alleys</li>
+      <li>⚔️ At 50 standing... something in the east alley stirs</li>
     </ul>
-    <p style="background:#2b1b4d;color:#ffd93d;padding:8px"> zzzzzzzzzzzzzzzz 🌸</p>
-    <button class="btn" id="btn-start" style="width:100%;font-size:14px;padding:14px">▶ START ADVENTURE! ぼうけんスタート!</button>
+    <p style="background:#160a24;color:#ffb35c;padding:8px">NOTE: Game text is in English. Japanese is decorative only. 日本語は飾りです 🎃</p>
+    <button class="btn" id="btn-start" style="width:100%;font-size:14px;padding:14px">▶ START THE NIGHT! よるスタート!</button>
   </div>
 </div>
 
-<!-- CHALLENGE modal -->
+<!-- shared modal: dialogues, shops, minigames -->
 <div class="overlay hidden" id="challenge-modal">
   <div class="card">
     <span class="jp" id="c-jp">トライアル</span>
-    <h2 id="c-title">TRIAL</h2>
+    <h2 id="c-title">???</h2>
     <div id="c-body"></div>
   </div>
 </div>
 
-<!-- VICTORY -->
-<div class="overlay hidden" id="victory">
-  <div id="confetti-layer" style="position:absolute;inset:0;overflow:hidden;pointer-events:none"></div>
-  <div class="card">
-    <div style="font-size:40px">👑🎉💖🐈🐈‍⬛🍰🍓🌸✨🧠✨🌸🍓🍰🐈‍⬛🐈💖🎉👑</div>
-    <div class="victory-title">★★★ LEGENDARY ESCAPE!! ★★★</div>
-    <div class="jp" style="margin-top:8px">脱出成功 • 天才 • かわいい • 優勝!</div>
-    <div class="victory-msg">Goodddd jobbbb my sweet honey chesecake strowberry pookie bun 💖🐈💕🐱💗</div>
-    <div id="hearts-cats">💖🐈💕🐱💗🐈‍⬛🍰🍓🌸✨💖🐈💕🐱💗🐈‍⬛🍰🍓🌸✨💖🐈💕🐱💗🍰🍓💖🐈💕</div>
-    <p class="rainbow" style="font-size:18px">SO PROUD OF U POOKIE</p>
-    <p><b>Final stats (English):</b> Time: <span id="final-time">00:00</span> • Braincells: 🧠 <span id="final-brain">0</span> • Trials: <span id="final-done">0/6</span></p>
-    <p>🏆 INSERT CAT THUMBS UP IMAGE 🏆</p>
-    <div id="hearts-cats2" style="font-size:26px">🐱💖🐈💕🐈‍⬛💗🌸🍓🍰✨🧛‍♀️✨🍰🍓🌸💗🐈‍⬛💕🐈💖🐱</div>
-    <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn" id="btn-again" style="flex:1">↺ PLAY AGAIN (new maze!)</button>
-    </div>
+<!-- DEATH -->
+<div class="overlay hidden" id="death">
+  <div class="card death-card">
+    <div style="font-size:44px">👻🍖💀🍖👻</div>
+    <div class="death-title">STARVED!</div>
+    <p><b>Mowzkitow forgot to eat.</b> Her ghost now haunts the conbini, rattling the onigiri shelf forever. The cats held a tiny funeral. There were tiny sandwiches.</p>
+    <p id="death-stats"></p>
+    <button class="btn" id="btn-again-death" style="width:100%">↺ HAUNT AGAIN (restart)</button>
   </div>
 </div>
 
-<div id="judge-flash" class="hidden"><img id="judge-img" src="judge-cat.png" alt="a deeply judgmental cat"><div id="judge-fallback" style="display:none">🐱</div><div class="judge-cap">judged.</div></div>
+<!-- ENDING -->
+<div class="overlay hidden" id="victory">
+  <div class="card end-card">
+    <div style="font-size:40px">👑🌙🐈‍⬛🌙👑</div>
+    <div class="victory-title">NYANNER DEFEATED</div>
+    <p><b>You beat the game... but at what cost?</b> The kitty kingdom has lost one of their overlords now.</p>
+    <p id="final-stats"></p>
+    <div class="credits"><div class="credits-roll">
+      <p>★ MOWZKITOW: HALLOWEEN TOWN ★</p><p>starring MOWZKITOW the vampire witch</p>
+      <p>featuring the VETERAN KITTY</p><p>and POCHI &amp; HACHI's ramen</p>
+      <p>special thanks to the stray committee</p><p>raccoon gang — undefeated in our hearts</p>
+      <p>Officers Nolan, Chen &amp; Bradford (no donuts were shared)</p>
+      <p>evil nyanner — gone but judging still</p>
+      <p>...at what cost...</p><p>FIN • おわり • NYA</p>
+    </div></div>
+    <button class="btn" id="btn-again-win" style="width:100%">↺ NEW NIGHT (restart)</button>
+  </div>
+</div>
+
+<div id="judge-flash" class="hidden"><img id="judge-img" src="judge-cat.png" alt="a deeply judgmental cat"><div id="judge-fallback" style="display:none">🐈</div><div class="judge-cap">judged.</div></div>
 <div id="toast"></div>
 
+<script src="audio.js"></script>
+<script src="minigames.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

@@ -49,11 +49,17 @@ header.topbar {
 .btn.alt { background: #7bffef; }
 .btn.pink { background: #ff6fae; color: #fff; text-shadow: 1px 1px 0 #000; }
 
-#layout { position: relative; z-index: 4; display: flex; gap: 12px; padding: 12px; max-width: 1240px; margin: 0 auto; }
-#canvas-wrap { position: relative; flex: 1; background: #06030f; border: 4px solid #ff8c42; box-shadow: 8px 8px 0 #000, 8px 8px 0 4px #3a1440; }
-#game { display: block; width: 100%; height: 640px; background: #2c5b30; image-rendering: pixelated; image-rendering: crisp-edges; }
-#side { width: 264px; display: flex; flex-direction: column; gap: 10px; }
-.panel { background: #221130; color: #f0dcff; border: 4px solid #0a0514; box-shadow: 6px 6px 0 #000; padding: 10px; }
+html, body { height: 100%; overflow: hidden; }
+#layout { position: fixed; inset: 0; z-index: 4; display: block; padding: 0; max-width: none; margin: 0; }
+#canvas-wrap { position: absolute; inset: 0; background: #06030f; border: none; box-shadow: none; }
+#game { display: block; width: 100%; height: 100%; background: #2c5b30; image-rendering: pixelated; image-rendering: crisp-edges; }
+#side { position: fixed; right: 10px; top: 118px; width: 248px; max-height: calc(100vh - 140px); overflow-y: auto; z-index: 6; display: flex; flex-direction: column; gap: 10px; }
+body.hud-hidden #side, body.hud-hidden #quest-strip { display: none; }
+header.topbar { position: fixed; top: 0; left: 0; right: 0; padding: 6px 10px; background: rgba(42,14,56,.93); }
+.title-block h1 { font-size: 14px; }
+.title-block .subtitle { display: none; }
+.title-block .jp-deco { font-size: 12px; margin-top: 4px; }
+.panel { background: rgba(34,17,48,.93); color: #f0dcff; border: 4px solid #0a0514; box-shadow: 6px 6px 0 #000; padding: 10px; }
 .panel h3 { font-family: 'Press Start 2P', monospace; font-size: 11px; margin: 0 0 8px 0; background: #12081f; color: #ff9a3d; padding: 6px; }
 .panel p, .panel li { font-size: 14px; line-height: 1.4; }
 .panel ul { padding-left: 18px; margin: 6px 0; }
@@ -119,6 +125,25 @@ header.topbar {
 .confetti { position: absolute; font-size: 22px; animation: fall linear infinite; }
 
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; background: #2b1b4d; color: #fff; border: 3px solid #ffd93d; padding: 8px 14px; display: none; font-size: 15px; box-shadow: 4px 4px 0 #000; }
+/* chapter 2: quest strip + banner + hunger */
+#quest-strip { position: fixed; top: 62px; left: 0; right: 0; z-index: 5; padding: 6px 12px; font-size: 14px; color: #ffd9a8; background: rgba(13,6,24,.78); border-bottom: 2px solid #3a1440; }
+#quest-banner { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 55; background: #1a0a26; color: #ffd93d; border: 4px solid #ff0f5a; box-shadow: 6px 6px 0 #000, 0 0 30px #ff0f5a; padding: 12px 18px; font-size: 17px; text-align: center; max-width: 90vw; }
+@media (max-width: 720px) { #side { left: 10px; right: 10px; width: auto; top: auto; bottom: 10px; max-height: 36vh; } }
+#quest-banner.hidden { display: none; }
+.hungerbar { width: 130px; height: 12px; background: #0a0514; border: 2px solid #0a0514; margin-top: 4px; }
+#hud-hunger-fill { height: 100%; width: 100%; background: #7bff9e; }
+.hud-box.hunger { min-width: 160px; }
+/* dialogue */
+.dlg-name { font-family: 'Press Start 2P', monospace; font-size: 12px; background: #160a24; color: #ff9a3d; padding: 6px 8px; margin-bottom: 8px; }
+.dlg-text { background: #fff; color: #111; border: 3px solid #0a0514; padding: 12px; font-size: 16px; min-height: 70px; cursor: pointer; }
+.dlg-hint { text-align: right; font-size: 12px; color: #6b5a8a; margin-top: 4px; }
+/* death + ending */
+.death-card { border-color: #5a5a6b !important; text-align: center; }
+.death-title { font-family: 'Press Start 2P', monospace; font-size: 30px; color: #8a8a9a; text-shadow: 3px 3px 0 #000; }
+.end-card { text-align: center; }
+.credits { height: 150px; overflow: hidden; background: #0d0618; border: 3px solid #0a0514; margin: 10px 0; }
+.credits-roll { animation: roll 14s linear infinite; color: #ffd9a8; font-size: 15px; }
+@keyframes roll { from { transform: translateY(150px); } to { transform: translateY(-110%); } }
 /* judgment cat: pops in on every puzzle fail, never blocks input */
 #judge-flash { position: fixed; right: 18px; bottom: 18px; z-index: 70; pointer-events: none; text-align: center; animation: judgepop .15s steps(2); }
 #judge-flash.hidden { display: none; }
