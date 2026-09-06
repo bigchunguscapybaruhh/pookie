@@ -63,40 +63,40 @@ function sfx(name) {
   if (name==='quest') { [659,784,988,784,1046].forEach((f,i)=>playNote(f,.14,'triangle',.09,i*0.08)); }
   if (name==='siren') { playGlide(600,1200,.4,'sawtooth',.05); }
 }
-// ---- FIELD: "Lanterns of Sakura Town" — an actual 64-step song (original).
-// Verse (0-31, music-box soft) -> Chorus lift (32-63). Subtle on purpose.
+// ---- FIELD: "Moshi Moshi Town" — soft upbeat cute J-pop (original).
+// I–V–vi–IV bounce, music-box lead, telephone-blip motif. Verse -> chorus.
 const boneLead = [
-  'A4',0,'C5',0, 'E5',0,'D5','C5', 'D5',0,'C5',0, 'A4',0,'G4',0,
-  'A4',0,'C5',0, 'E5',0,'G5',0,  'A5',0,'G5','E5', 'D5',0,'C5',0,
-  'F5',0,'E5','D5', 'C5',0,'D5',0, 'E5',0,'G5',0,  'A5',0,0,'E5',
-  'G5',0,'E5','D5', 'C5',0,'A4',0, 'B4',0,'C5','B4', 'A4~',0,0,0,
+  'E5',0,'G5',0, 'A5',0,'G5','E5', 'D5',0,'E5',0, 'G5',0,0,0,
+  'E5',0,'G5',0, 'A5',0,'C6',0,  'B5',0,'A5','G5', 'E5',0,'D5',0,
+  'E5',0,'G5',0, 'A5',0,'G5',0,  'C6',0,'B5','A5', 'G5',0,'E5',0,
+  'D5',0,'E5','F5', 'E5',0,'D5',0, 'C5',0,'D5','E5', 'C5~',0,0,0,
 ];
 const boneBass = [
-  'A2',0,0,0, 'A2',0,'E3',0,  'F2',0,0,0, 'F2',0,'C3',0,
-  'G2',0,0,0, 'G2',0,'D3',0,  'A2',0,0,0, 'A2',0,'E3',0,
-  'F2',0,0,0, 'F2',0,'C3',0,  'G2',0,0,0, 'G2',0,'D3',0,
-  'A2',0,0,0, 'F2',0,0,0,  'E2',0,0,0, 'A2~',0,0,0,
+  'C3',0,'G2',0, 'C3',0,'G2',0,  'G2',0,'D3',0, 'G2',0,'D3',0,
+  'A2',0,'E3',0, 'A2',0,'E3',0,  'F2',0,'C3',0, 'F2',0,'C3',0,
+  'C3',0,'G2',0, 'C3',0,'G2',0,  'A2',0,'E3',0, 'A2',0,'E3',0,
+  'F2',0,'C3',0, 'G2',0,'D3',0,  'C3',0,'G2',0, 'C3~',0,0,0,
 ];
 function fieldStep(i){
   const swing = (i % 2 === 1) ? 0.02 : 0;
   const chorus = i >= 32;
   const l = boneLead[i], b = boneBass[i];
-  if (l) { // soft music-box lead, a touch brighter in the chorus
-    if (String(l).endsWith('~')) { const n=String(l).slice(0,-1); playGlide(noteFreq(n)/2, noteFreq(n), 0.3, 'triangle', 0.035, swing); }
-    else { playNote(noteFreq(l), 0.16, 'triangle', chorus?0.038:0.032, swing); playNote(noteFreq(l)*2, 0.08, 'sine', 0.012, swing); }
+  if (l) { // cute music-box lead, sparkling octave, brighter in chorus
+    if (String(l).endsWith('~')) { const n=String(l).slice(0,-1); playGlide(noteFreq(n)/2, noteFreq(n), 0.3, 'triangle', 0.034, swing); }
+    else { playNote(noteFreq(l), 0.15, 'triangle', chorus?0.037:0.031, swing); playNote(noteFreq(l)*2, 0.07, 'sine', 0.011, swing); }
   }
-  if (b) {
-    if (String(b).endsWith('~')) { const n=String(b).slice(0,-1); playGlide(noteFreq(n), noteFreq(n)*2, 0.4, 'triangle', 0.075, 0); }
-    else playNote(noteFreq(b), 0.3, 'triangle', 0.075, 0);
+  if (b) { // bouncy root-fifth J-pop bassline
+    if (String(b).endsWith('~')) { const n=String(b).slice(0,-1); playGlide(noteFreq(n), noteFreq(n)*2, 0.4, 'triangle', 0.07, 0); }
+    else playNote(noteFreq(b), 0.16, 'triangle', 0.07, 0);
   }
-  // brushed kit: soft kick on bar starts, whisper hats, rare rim
-  if (i % 16 === 0) playNote(100, 0.1, 'sine', 0.06);
-  if (i % 4 === 2) playNote(7000, 0.02, 'square', 0.005);
-  if (i % 32 === 20) playNote(190, 0.06, 'square', 0.025);
-  if (i === 46) playPlunk(noteFreq('E5'), 0.12, 0.025);
-  if (i % 32 === 0) { playNote(noteFreq('A5'), 0.8, 'triangle', 0.016); playNote(noteFreq('E5'), 0.8, 'sine', 0.014); }
-  if (step % 128 === 0) playGlide(noteFreq('E6'), noteFreq('A5'), 1.6, 'sine', 0.016);
-  if (step % 128 === 64) playGlide(noteFreq('C6'), noteFreq('G5'), 1.4, 'sine', 0.013);
+  // soft pop kit: pillowy kick, whisper hats, gentle clap
+  if (i % 8 === 0 || i % 8 === 4) playNote(105, 0.09, 'sine', 0.055);
+  if (i % 2 === 1) playNote(7200, 0.02, 'square', 0.005);
+  if (i % 16 === 12) playNote(950, 0.04, 'square', 0.022);
+  if (i === 46) playPlunk(noteFreq('G5'), 0.1, 0.022);
+  // "moshi moshi" telephone blips — cute hello every verse
+  if (i % 32 === 24) { playNote(noteFreq('E6'), 0.09, 'sine', 0.02); playNote(noteFreq('G6'), 0.12, 'sine', 0.02, 0.11); }
+  if (i % 32 === 0) { playNote(noteFreq('C6'), 0.7, 'triangle', 0.014); playNote(noteFreq('G5'), 0.7, 'sine', 0.012); }
 }
 // ---- BOSS: driving showdown (original) — gallop bass, stab lead, alarm ----
 const bossLead = [

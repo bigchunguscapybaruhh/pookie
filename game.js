@@ -1302,6 +1302,7 @@ function toastStart(){ toast('🌃 Fresh night. Find the NEKO PUB, west side!');
 document.getElementById('btn-music').onclick=(e)=>{ musicOn=!musicOn; e.target.textContent=musicOn?'🎵 MUSIC: ON':'🎵 MUSIC: OFF'; initAudio(); if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); };
 document.getElementById('btn-help').onclick=()=>{ document.getElementById('start-overlay').classList.remove('hidden'); paused=true; syncAudioFlags(); };
 document.getElementById('btn-hud').onclick=(e)=>{ document.body.classList.toggle('hud-hidden'); e.target.textContent=document.body.classList.contains('hud-hidden')?'👁 SHOW HUD':'👁 HUD'; };
+document.querySelectorAll('#side .panel h3').forEach(h=>{ h.title='click to collapse / expand'; h.onclick=()=>h.parentElement.classList.toggle('collapsed'); });
 document.getElementById('btn-unstuck').onclick=()=>{
   if(!gameStarted||dead||won||modalOpen) return;
   const body=openModal('UNSTUCK?!','たすけて!');
