@@ -17,7 +17,8 @@ let paused = true, modalOpen = false, gameStarted = false;
 let dead = false, won = false, inMap = null; // null = town, 'pub' | 'cafe'
 let hunger = 100, meowllars = 8, standing = 0, questStage = 0; // 0: meet vet, 1: rematch, 2: gang grind, 3: boss open, 4: cleared
 let typingWins = 0, fish = 0;
-function locMusic(){ return inMap==='pub'?'pub':(inMap==='cafe'?'cafe':'field'); }
+let catForm = false, catUntil = 0;
+function locMusic(){ return inMap==='pub'?'pub':(inMap==='cafe'?'cafe':(inMap==='cave'?'cave':'field')); }
 let nowSec = 0, cam = { x: 0, y: 0 };
 let bossSpawned = false;
 function syncAudioFlags(){ window.__gameStarted = gameStarted; window.__gamePaused = paused || modalOpen || dead || won; }
@@ -146,9 +147,11 @@ function buildTown(){
   lamps.push({x:24.5*TILE,y:22.5*TILE},{x:31.5*TILE,y:25.5*TILE}); // koban plaza lamps
 }
 // interiors: sleazy pub + neon net cafe
+const CAVE_DOOR={x:52.5*TILE,y:5.5*TILE};
 const interiors = {
   pub:  { w:22, h:14, solids:[] },
   cafe: { w:20, h:12, solids:[] },
+  cave: { w:20, h:14, solids:[] },
 };
 function buildInteriors(){
   const P=(x,y,w,h)=>interiors.pub.solids.push({x:x*TILE,y:y*TILE,w:w*TILE,h:h*TILE});
@@ -162,6 +165,9 @@ function buildInteriors(){
   C(14,0,6,1);                          // clerk counter
   C(3,4,14,1); C(3,7,14,1);             // PC desk rows
   C(1,9,2,1);                           // snack shelf
+  const V=(x,y,w,h)=>interiors.cave.solids.push({x:x*TILE,y:y*TILE,w:w*TILE,h:h*TILE});
+  V(0,0,20,1); V(0,13,20,1); V(0,0,1,14); V(19,0,1,14); // walls
+  V(9,5,2,2);                           // cooking pot dais
 }
 
 // ---------- ENTITIES ----------
@@ -185,7 +191,7 @@ const strayLines = [
   'Mrrp! I saw a ghost and I simply chose not to perceive it.',
   'Meow!! This alley is MY alley. ...Okay, our alley. You can stay.',
 ];
-let strays = [], raccoons = [], cops = [], guards = [], patrons = [];
+let strays = [], raccoons = [], cops = [], guards = [], patrons = [], caveCats = [];
 let veteran = null, dogs = [], boss = null, clerk = null, hollow = null;
 function px(tx,ty){ return {x:tx*TILE+TILE/2, y:ty*TILE+TILE/2}; }
 function spawnNPCs(){
@@ -223,6 +229,14 @@ function spawnNPCs(){
   ];
   clerk = Object.assign({x:17*TILE,y:0.5*TILE},{color:'#7ab8ff',name:'Clerk Kon'});
   hollow = Object.assign({x:4.5*TILE,y:36*TILE},{name:'Hollow'});
+  const W=(tx,ty,c,n,l1,l2)=>Object.assign({x:tx*TILE,y:ty*TILE},{color:c,name:n,l1,l2,nextFish:0});
+  caveCats = [
+    W(4,4,'#8a5aa8','Madame Zola','"The crystals hum in B-flat. Tonight they hum in B-URGENT. Something brews..."','"...anyway I forgot what I was saying. The hum is nice though. Hum with me. Hmmmm."'),
+    W(15,3.5,'#5aa88a','Beans the Oracle','"I have SEEN the future. It involves... a bowl. Possibly soup."','"The vision ends there. Visions are expensive. That\'ll be one secret."'),
+    W(5,10,'#a88a5a','Professor Paws','"Our pot brews at precisely 451 degrees of nonsense. I measured."','"...I made that number up. The pot doesn\'t own a thermometer. Neither do I. We\'re even."'),
+    W(15,10,'#c95a8a','Hex','"Drink and become! Or don\'t. I\'m a cat, not your mom."','"The last witch who drank it meowed for a month. A MONTH. It was glorious."'),
+    W(10,8.6,'#6a6ab8','Granny Nox','"Back in my day we had NINE lives AND a pension..."','"...the pension was imaginary. The lives were real. Spend them wisely. Or don\'t. Live a little. Die a little."'),
+  ];
   guards = []; boss = null; bossSpawned = false;
 }
 function spawnBoss(){
@@ -599,6 +613,56 @@ function drawCafeFloor(g,sx,sy,vx,vy){
   g.fillStyle='rgba(53,224,230,.07)'; g.fillRect(sx,sy,TILE,4);
   if(hash2(vx*2,vy*3)>0.92){ g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(sx+10,sy+30,14,6); } // cable spaghetti
 }
+function drawCaveFloor(g,sx,sy,vx,vy){
+  g.fillStyle=((vx+vy)%2===0)?'#1c1030':'#180c28'; g.fillRect(sx,sy,TILE,TILE);
+  let h=(vx*37 ^ vy*91)>>>0;
+  const rnd=()=>{h=(h*1664525+1013904223)>>>0;return h/4294967295;};
+  for(let i=0;i<4;i++){ g.fillStyle='rgba(0,0,0,.3)'; g.fillRect(sx+Math.floor(rnd()*11)*4,sy+Math.floor(rnd()*11)*4,4,4); }
+  if(hash2(vx*3+1,vy*5+2)>0.86){ // little glowshroom cluster
+    g.fillStyle='#7a4a9a'; g.fillRect(sx+8,sy+26,4,12); g.fillRect(sx+20,sy+30,4,8); g.fillRect(sx+32,sy+26,4,12);
+    g.fillStyle='#c9a7ff'; g.fillRect(sx+6,sy+22,8,6); g.fillRect(sx+18,sy+27,8,5); g.fillRect(sx+30,sy+22,8,6);
+  }
+}
+function drawWitchCat(g,x,y,color){
+  drawCat(g,x,y,color,false);
+  const bob=Math.sin(Date.now()/350+x)*1.5;
+  g.fillStyle='#1d1030'; // mini witch hat, regulation coven size
+  g.fillRect(x-9,y-40+bob,18,5);
+  g.fillRect(x-4,y-52+bob,8,12);
+  g.fillStyle='#9b5cff'; g.fillRect(x-9,y-37+bob,18,2);
+  g.fillStyle='#ffd93d'; g.fillRect(x-2,y-37+bob,4,2);
+}
+function drawCaveMouth(g,x,y){
+  const t=Date.now()/450;
+  g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(x-34,y+18,68,8);
+  g.fillStyle=`rgba(150,80,255,${.16+.08*Math.sin(t)})`; g.fillRect(x-40,y-52,80,78);
+  g.fillStyle='#2c2138'; // rock arch
+  g.fillRect(x-30,y-40,12,62); g.fillRect(x+18,y-40,12,62);
+  g.fillRect(x-30,y-52,60,14);
+  g.fillStyle='#3d2d4d'; g.fillRect(x-30,y-40,5,62); g.fillRect(x+25,y-40,5,62);
+  g.fillStyle='#0a0514'; g.fillRect(x-18,y-38,36,60); // the dark within
+  const cols=['#c9a7ff','#7bffef','#ff9ed2'];
+  for(let i=0;i<3;i++){ g.fillStyle=cols[i]; g.fillRect(x-24+i*20+Math.sin(t+i)*2,y-46,6,6); } // rune stones
+  g.fillStyle=`rgba(200,150,255,${.5+.4*Math.sin(t*1.4)})`; // swirling glow
+  g.fillRect(x-14,y-30,28,44);
+  g.fillStyle='#fff'; g.font='bold 10px monospace'; g.textAlign='center';
+  g.fillText('▼ CAVE?',x,y+36);
+}
+function drawPot(g,x,y){
+  const t=Date.now()/300;
+  g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(x-24,y+16,48,6);
+  g.fillStyle='#7a3a1a'; g.fillRect(x-20,y+10,6,8); g.fillRect(x+14,y+10,6,8); // logs
+  g.fillStyle='#ff8c42'; g.fillRect(x-16,y+12,32,6);                          // fire
+  g.fillStyle=`rgba(255,200,80,${.6+.4*Math.sin(t)})`; g.fillRect(x-12,y+13,24,3);
+  g.fillStyle='#1c1c26'; g.fillRect(x-22,y-14,44,28);                         // pot
+  g.fillStyle='#2e2e3e'; g.fillRect(x-22,y-14,44,5);
+  g.fillStyle='#3dff9e'; g.fillRect(x-18,y-12,36,8);                          // bubbling brew
+  g.fillStyle='#9dffc9';
+  for(let i=0;i<3;i++){ const bx=x-12+i*12+Math.sin(t+i*2)*3, by=y-16-((t*14+i*9)%14); g.fillRect(bx,by,5,5); }
+  g.fillStyle='rgba(61,255,158,.25)'; g.fillRect(x-16,y-22,32,10);             // steam glow
+  g.fillStyle='#fff'; g.font='bold 10px monospace'; g.textAlign='center';
+  g.fillText('▼ DRINK?',x,y+32);
+}
 
 // ---------- UPDATE ----------
 let spaceEdge = false, spaceWas = false;
@@ -646,6 +710,12 @@ function update(dt){
   // hunger (paused automatically while modal/paused)
   hunger-=dt*(100/480);
   if(hunger<=0){ hunger=0; die(); return; }
+  // cat brew wears off (gameplay-time seconds, pauses in menus — fair)
+  if(catForm && nowSec>=catUntil){
+    catForm=false; sfx('lose');
+    toast('🐾 ...you feel weird. Less whiskery. Witch again! The ears were a good look though.');
+    log('Cat mode wore off. Back to witch!');
+  }
   // camera
   const MW=inMap?interiors[inMap].w:TW, MH=inMap?interiors[inMap].h:TH;
   const W=MW*TILE, H=MH*TILE;
@@ -700,7 +770,8 @@ function caughtByCop(c){
 }
 
 // ---------- INTERACTION ----------
-const EXIT_MATS={pub:{x:11,y:13},cafe:{x:10,y:11}};
+const EXIT_MATS={pub:{x:11,y:13},cafe:{x:10,y:11},cave:{x:10,y:12.6}};
+const POT_POS={x:10*TILE,y:6*TILE};
 function tryInteract(){
   // doors first
   for(const d of (inMap?[]:doors)){
@@ -716,12 +787,41 @@ function tryInteract(){
     if(inMap==='pub'){
       if(Math.hypot(player.x-veteran.x,player.y-veteran.y)<64){ talkVeteran(); return; }
       const pt=nearest(patrons,56); if(pt){ talkPatron(pt); return; }
-    } else {
+    } else if(inMap==='cafe'){
       if(clerk&&Math.hypot(player.x-clerk.x,player.y-clerk.y)<58){ talkClerk(); return; }
       if(Math.hypot(player.x-10*TILE,player.y-5.4*TILE)<54){ computerMenu(); return; }
+    } else {
+      const cc=nearest(caveCats,56); if(cc){ talkCaveCat(cc); return; }
+      if(Math.hypot(player.x-POT_POS.x,player.y-POT_POS.y)<88){ potMenu(); return; }
     }
     return;
   }
+function talkCaveCat(cc){
+  const lines=[cc.l1,cc.l2];
+  if(nowSec>=cc.nextFish && Math.random()<0.15){
+    cc.nextFish=nowSec+45; fish++; refreshHUD(); sfx('coin');
+    lines.push(`<i>(It slides you a slightly warm fish from... somewhere. +1🐟! Total: ${fish}. Do NOT ask.)</i>`);
+    log(`${cc.name} gifted a fish! Total: ${fish}`);
+  }
+  sfx('meow');
+  showDialogue(cc.name+' 🔮',lines);
+}
+function potMenu(){
+  const body=openModal('THE BREW','なべ • のむ!');
+  const p=document.createElement('p');
+  p.innerHTML=`The pot bubbles in a color that isn't. A ladle floats nearby, judgment-free.<br>Drink the brew and <b>become CAT for 30 seconds</b>? (Visuals only. Probably.) 🍲🐈${catForm?'<br><b>Already cat. Double-cat is not covered by insurance.</b>':''}`;
+  body.appendChild(p);
+  const go=_btn('DRINK THE BREW 🍲'); go.style.width='100%'; go.style.marginTop='6px';
+  const no=_btn('Just sniff','pink'); no.style.width='100%'; no.style.marginTop='6px';
+  go.onclick=()=>{
+    closeModal();
+    catForm=true; catUntil=nowSec+30; sfx('slurp');
+    toast('🐈 POOF! You are cat! 30 seconds of feline power!');
+    log('Drank the brew. CAT MODE!');
+  };
+  no.onclick=()=>{ closeModal(); toast('👃 Smells like soup and bad decisions. You back away.'); };
+  body.appendChild(go); body.appendChild(no);
+}
   const cat=nearest(strays.filter(c=>true),46);
   if(cat){ petCat(cat); return; }
   const rc=nearest(raccoons.filter(r=>nowSec*1000>=r.hiddenUntil),46);
@@ -730,6 +830,7 @@ function tryInteract(){
   for(const gd of guards){ if(Math.hypot(player.x-gd.x,player.y-gd.y)<40){ showDialogue('Black cat',['...Hssss.','(It says nothing else. It doesn\'t have to.)']); return; } }
   for(const dg of dogs){ if(Math.hypot(player.x-dg.x,player.y-dg.y)<52){ ramenMenu(); return; } }
   for(const m of machines){ if(Math.hypot(player.x-m.x,player.y-m.y)<44){ vendMenu(m); return; } }
+  if(Math.hypot(player.x-CAVE_DOOR.x,player.y-CAVE_DOOR.y)<56){ enterMap('cave',10,10.4,'up','🕳 The dark smells like soup and secrets. The witch cats await...','Entered the witch cave!'); return; }
   for(const p of PONDS){
     const r=pondRectPx(p);
     const cx=Math.max(r.x,Math.min(player.x,r.x+r.w)), cy=Math.max(r.y,Math.min(player.y,r.y+r.h));
@@ -1023,7 +1124,7 @@ function winGame(){
 function resetGame(){
   closeModal();
   document.getElementById('quest-banner').classList.add('hidden');
-  hunger=100; meowllars=8; standing=0; questStage=0; nowSec=0; fish=0; typingWins=0;
+  hunger=100; meowllars=8; standing=0; questStage=0; nowSec=0; fish=0; typingWins=0; catForm=false;
   dead=false; won=false; inMap=null; bossSpawned=false; typingWins=0;
   player.x=27*TILE; player.y=21*TILE; player.dir='down'; player.immuneUntil=0;
   spawnNPCs();
@@ -1041,9 +1142,9 @@ function drawMinimap(){
   const w=minimap.width=220, h=minimap.height=220;
   mctx.fillStyle='#0d0618'; mctx.fillRect(0,0,w,h);
   if(inMap){
-    mctx.fillStyle=inMap==='cafe'?'#141428':'#3a2818'; mctx.fillRect(10,10,w-20,h-20);
+    mctx.fillStyle=inMap==='cafe'?'#141428':(inMap==='cave'?'#1c1030':'#3a2818'); mctx.fillRect(10,10,w-20,h-20);
     mctx.fillStyle='#ffd93d'; mctx.font='10px monospace';
-    mctx.fillText(inMap==='cafe'?'NET CAFE':'NEKO PUB',20,30);
+    mctx.fillText(inMap==='cafe'?'NET CAFE':(inMap==='cave'?'WITCH CAVE':'NEKO PUB'),20,30);
     mctx.fillStyle='#ff9ed2'; mctx.fillRect(100,40,10,10);
     mctx.fillStyle='#7bffef'; mctx.fillRect(100,170,10,10);
     return;
@@ -1126,6 +1227,13 @@ function render(){
       warm.push({x:lx+8,y:ly-34,r:125,color:'255,220,150'});
     }
     drawMailbox(ctx,35.7*TILE-cam.x,21.2*TILE-cam.y); // koban mailbox 〒
+    { // magical cave mouth, NE corner
+      const cx=CAVE_DOOR.x-cam.x, cy=CAVE_DOOR.y-cam.y;
+      if(cx>-80&&cx<canvas.width+80&&cy>-80&&cy<canvas.height+80){
+        drawCaveMouth(ctx,cx,cy);
+        warm.push({x:cx,y:cy-10,r:130,color:'150,80,255'});
+      }
+    }
     for(const p of PONDS){
       const r=pondRectPx(p), px2=r.x-cam.x, py2=r.y-cam.y;
       if(px2<-320||py2<-240||px2>canvas.width+320||py2>canvas.height+240)continue;
@@ -1216,7 +1324,7 @@ function render(){
     drawVeteran(ctx,veteran.x-cam.x,veteran.y-cam.y);
     ctx.fillStyle='#7bffef'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
     ctx.fillText('▼ EXIT',11*TILE-cam.x,13.2*TILE-cam.y);
-  } else {
+  } else if(inMap==='cafe'){
     // ---- net cafe interior: hum of a hundred CRTs ----
     ctx.fillStyle='#0b0b18'; ctx.fillRect(0,0,canvas.width,canvas.height);
     const x0=Math.max(0,Math.floor(cam.x/TILE)-1), y0=Math.max(0,Math.floor(cam.y/TILE)-1);
@@ -1259,8 +1367,42 @@ function render(){
     ctx.fillStyle='#7bffef'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
     ctx.fillText('▼ USE FREE PC',10*TILE-cam.x,5.9*TILE-cam.y);
     ctx.fillText('▼ EXIT',10*TILE-cam.x,11.2*TILE-cam.y);
+  } else {
+    // ---- witch cave: soup-scented crystal den ----
+    ctx.fillStyle='#12081f'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    const x0=Math.max(0,Math.floor(cam.x/TILE)-1), y0=Math.max(0,Math.floor(cam.y/TILE)-1);
+    const x1=Math.min(19,Math.ceil((cam.x+canvas.width)/TILE)+1), y1=Math.min(13,Math.ceil((cam.y+canvas.height)/TILE)+1);
+    for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++) drawCaveFloor(ctx,Math.floor(tx*TILE-cam.x),Math.floor(ty*TILE-cam.y),tx,ty);
+    // big glow crystals (light sources!)
+    const crys=[{x:2,y:2,c:'53,224,230'},{x:17,y:2,c:'201,167,255'},{x:2,y:11,c:'123,255,158'},{x:17,y:11,c:'255,158,210'},{x:13,y:7,c:'255,217,61'}];
+    for(const c of crys){
+      const cx=c.x*TILE-cam.x, cy=c.y*TILE-cam.y;
+      if(cx<-60||cx>canvas.width+60||cy<-60||cy>canvas.height+60)continue;
+      const rgb=c.c.split(',');
+      ctx.fillStyle=`rgba(0,0,0,.4)`; ctx.fillRect(cx-10,cy+12,20,5);
+      ctx.fillStyle=`rgba(${c.c},.25)`; ctx.fillRect(cx-20,cy-24,40,52);
+      ctx.fillStyle=`rgb(${c.c})`;
+      ctx.fillRect(cx-6,cy-8,12,24); ctx.fillRect(cx-2,cy-16,5,8);
+      ctx.fillStyle='#fff'; ctx.fillRect(cx-4,cy-4,4,10);
+      ctx.fillStyle=`rgb(${rgb[0]*0.5|0},${rgb[1]*0.5|0},${rgb[2]*0.5|0})`; ctx.fillRect(cx-6,cy+8,12,8);
+      warm.push({x:cx,y:cy,r:120,color:c.c});
+    }
+    // cooking pot on its dais
+    drawPot(ctx,POT_POS.x-cam.x,POT_POS.y-cam.y);
+    warm.push({x:POT_POS.x-cam.x,y:POT_POS.y-cam.y,r:130,color:'255,140,60'});
+    // witch cat coven
+    for(const cc of caveCats) drawWitchCat(ctx,cc.x-cam.x,cc.y-cam.y,cc.color);
+    ctx.fillStyle='#c9a7ff'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    ctx.fillText('▼ EXIT',10*TILE-cam.x,12.8*TILE-cam.y);
   }
-  drawWitch(ctx,player.x-cam.x,player.y-cam.y,player.dir,player.anim,player.moving);
+  if(catForm){
+    const cxp=player.x-cam.x, cyp=player.y-cam.y;
+    const cbob=player.moving?Math.abs(Math.sin(player.anim))*3:Math.sin(Date.now()/500)*1.5;
+    drawCat(ctx,cxp,cyp+cbob*0.3,'#241433',true);
+    ctx.fillStyle='#1d1030'; ctx.fillRect(cxp-10,cyp-46+cbob,20,6); ctx.fillRect(cxp-4,cyp-58+cbob,8,12);
+    ctx.fillStyle='#7b2ff7'; ctx.fillRect(cxp-10,cyp-42+cbob,20,3);
+    ctx.fillStyle='rgba(255,200,120,.9)'; ctx.fillRect(cxp+14,cyp,5,7);
+  } else drawWitch(ctx,player.x-cam.x,player.y-cam.y,player.dir,player.anim,player.moving);
   for(const p of parts){ ctx.fillStyle=p.color; ctx.fillRect(p.x-cam.x-2,p.y-cam.y-2,4,4); }
   // ---- NIGHTFALL ----
   if(lightCv.width!==canvas.width||lightCv.height!==canvas.height){ lightCv.width=canvas.width; lightCv.height=canvas.height; }
@@ -1289,7 +1431,7 @@ function render(){
   if(!gameStarted) return;
   ctx.fillStyle='rgba(10,5,26,.88)'; ctx.fillRect(8,8,310,26);
   ctx.fillStyle='#ffb35c'; ctx.font='12px monospace'; ctx.textAlign='left';
-  const where=inMap?(inMap==='pub'?'🍶PUB':'💻CAFE'):'🌃TOWN';
+  const where=!inMap?'🌃TOWN':(inMap==='pub'?'🍶PUB':(inMap==='cafe'?'💻CAFE':'🕳CAVE'));
   ctx.fillText(`Ⓜ${meowllars}  🐾${standing}  🍖${Math.ceil(Math.max(0,hunger))}%  ${where}`,14,25);
   // interaction hints
   ctx.fillStyle='rgba(10,5,26,.7)'; ctx.fillRect(8,canvas.height-28,330,20);

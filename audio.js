@@ -156,6 +156,31 @@ function cafeStep(i){
   if (i % 2 === 1) playNote(9000, 0.02, 'square', 0.009);               // hats
   if (i === 24) playPlunk(noteFreq('A5'), 0.1, 0.025);                  // coin sfx-ish
 }
+// ---- CAVE: very funky goofy brew music (original) — wobbles, slides, boings ----
+const caveLead = [
+  'E5',0,'G5',0, 'A5~',0,'G5',0, 'E5',0,'C5',0, 'D5',0,'E5',0,
+  'F5',0,'F#5',0, 'G5',0,'A5~',0, 'G5',0,'E5',0, 'D5~',0,'C5',0,
+];
+const caveBass = [
+  'C2~',0,'G2',0, 'A2~',0,'E2',0, 'F2',0,'C3',0, 'G2',0,'G2',0,
+  'C2~',0,'G2',0, 'F2~',0,'E2',0, 'D2',0,'G2',0, 'C2~',0,0,0,
+];
+function caveStep(i){
+  const l = caveLead[i], b = caveBass[i];
+  if (l) {
+    if (String(l).endsWith('~')) { const n=String(l).slice(0,-1); playGlide(noteFreq(n)/2, noteFreq(n), 0.22, 'square', 0.05); }
+    else { playNote(noteFreq(l), 0.11, 'square', 0.05); playNote(noteFreq(l)*2, 0.06, 'triangle', 0.02); }
+  }
+  if (b) {
+    if (String(b).endsWith('~')) { const n=String(b).slice(0,-1); playGlide(noteFreq(n), noteFreq(n)*2, 0.24, 'triangle', 0.11, 0); }
+    else playNote(noteFreq(b), 0.15, 'triangle', 0.11, 0);
+  }
+  if (i % 4 === 0) playNote(125, 0.07, 'sine', 0.10);                   // stompy kick
+  if (i % 4 === 2) playNote(850, 0.03, 'square', 0.028);                // wobbly claps
+  if (i % 8 === 7) playPlunk(noteFreq('C6'), 0.1, 0.03);                // drip drop
+  if (i % 16 === 8) playGlide(noteFreq('G4'), noteFreq('G6'), 0.4, 'sine', 0.03); // slide-whistleoo
+  if (i === 28) playGlide(noteFreq('E6'), noteFreq('C5'), 0.35, 'sawtooth', 0.03); // cauldron bubble-burp
+}
 // ---- SAD: slow 8-bit elegy for the credits (original) ----
 const sadLine = ['A4',0,0,0, 'F4',0,0,0, 'C5',0,'B4',0, 'A4',0,0,0,
                  'G4',0,0,0, 'E4',0,0,0, 'A4',0,0,0, 'E4',0,0,0];
@@ -164,8 +189,8 @@ function sadStep(i){
   if (n) { playNote(noteFreq(n), 0.5, 'square', 0.04); playNote(noteFreq(n)/2, 0.6, 'triangle', 0.03, 0.02); }
   if (i % 16 === 0) playNote(noteFreq('A2'), 1.2, 'triangle', 0.05);
 }
-const MODE_LEN = { field: 64, boss: 32, sad: 32, pub: 32, cafe: 32 };
-const MODE_TICK = { field: 152, boss: 108, sad: 300, pub: 132, cafe: 118 };
+const MODE_LEN = { field: 64, boss: 32, sad: 32, pub: 32, cafe: 32, cave: 32 };
+const MODE_TICK = { field: 152, boss: 108, sad: 300, pub: 132, cafe: 118, cave: 124 };
 let currentTick = 148;
 function musicLoop() {
   if (musicOn && audioCtx && window.__gameStarted && !window.__gamePaused) {
@@ -175,6 +200,7 @@ function musicLoop() {
     else if (musicMode === 'sad') sadStep(i);
     else if (musicMode === 'pub') pubStep(i);
     else if (musicMode === 'cafe') cafeStep(i);
+    else if (musicMode === 'cave') caveStep(i);
     else fieldStep(i);
   }
   step++;
